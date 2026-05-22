@@ -1,0 +1,17 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+
+        {
+            "name": "Python Debugger: Current File with Arguments",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "run.py",
+            "console": "integratedTerminal",
+            "args": "--websocket-uri wss://showdown.mmacneill.net/showdown/websocket --ps-username EvilWoodenPlank --ps-password \"&O9LUbW6o@hN@yEU\" --bot-mode battlehall --pokemon-format gen9battlehall --room-name lobby"
+        }
+    ]
+}
