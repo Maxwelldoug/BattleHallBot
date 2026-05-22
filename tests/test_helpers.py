@@ -3,6 +3,7 @@ import unittest
 from data.pkmn_sets import spreads_are_alike
 from fp.helpers import get_pokemon_info_from_condition
 from fp.helpers import normalize_name
+from fp.helpers import update_stats_from_nature
 
 
 class TestSpreadsAreAlike(unittest.TestCase):
@@ -112,3 +113,10 @@ class TestGetPokemonInfoFromCondition(unittest.TestCase):
         self.assertEqual(
             (20, 100, "brn"), get_pokemon_info_from_condition(condition_string)
         )
+
+
+class TestUpdateStatsFromNature(unittest.TestCase):
+    def test_neutral_nature_leaves_stats_unchanged(self):
+        stats = {"hp": 10, "atk": 11, "def": 12, "spa": 13, "spd": 14, "spe": 15}
+
+        self.assertEqual(stats, update_stats_from_nature(stats, "serious"))

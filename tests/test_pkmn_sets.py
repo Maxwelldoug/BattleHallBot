@@ -1,4 +1,6 @@
 import unittest
+import tempfile
+from unittest.mock import patch
 
 from data.pkmn_sets import (
     TeamDatasets,
@@ -94,6 +96,21 @@ class TestSmogonDatasets(unittest.TestCase):
         self.assertNotEqual(initial_len, len_after_pop)
         SmogonSets.add_new_pokemon("azelf")
         self.assertEqual(len_after_pop, len(SmogonSets.pkmn_sets["dragonite"]))
+
+    def test_invalid_smogon_response_returns_empty_dataset(self):
+        class FakeResponse:
+            def json(self):
+                raise ValueError("not json")
+
+        with tempfile.TemporaryDirectory() as temp_dir, patch(
+            "data.pkmn_sets.SMOGON_CACHE_DIR", temp_dir
+        ), patch("data.pkmn_sets.requests.get", return_value=FakeResponse()) as mock_get:
+            infos = SmogonSets._get_smogon_stats_json(
+                "https://www.smogon.com/stats/2026-05/chaos/gen9battlehall-0.json"
+            )
+
+        self.assertEqual({}, infos)
+        self.assertEqual(2, mock_get.call_count)
 
 
 class TestPredictSet(unittest.TestCase):

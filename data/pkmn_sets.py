@@ -685,17 +685,31 @@ class _SmogonSets(PokemonSets):
             with open(cache_file, "r") as f:
                 infos = json.load(f)
         else:
-            r = requests.get(smogon_stats_url)
-            if r.status_code == 404:
-                r = requests.get(
-                    self._get_smogon_stats_file_name(
-                        ntpath.basename(smogon_stats_url.replace("-0.json", "")),
-                        month_delta=2,
-                    )
+            fallback_urls = [smogon_stats_url]
+            fallback_urls.append(
+                self._get_smogon_stats_file_name(
+                    ntpath.basename(smogon_stats_url.replace("-0.json", "")),
+                    month_delta=2,
                 )
-            infos = r.json()["data"]
-            with open(cache_file, "w") as f:
-                json.dump(infos, f)
+            )
+
+            infos = None
+            for url in fallback_urls:
+                r = requests.get(url)
+                try:
+                    infos = r.json()["data"]
+                    break
+                except (KeyError, ValueError, TypeError):
+                    continue
+
+            if infos is None:
+                logger.warning(
+                    f"Could not retrieve valid Smogon stats from {smogon_stats_url}; using an empty dataset"
+                )
+                infos = {}
+            else:
+                with open(cache_file, "w") as f:
+                    json.dump(infos, f)
 
         return infos
 
