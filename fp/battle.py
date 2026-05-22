@@ -183,6 +183,7 @@ class Battler:
         self.active = None
         self.reserve = []
         self.side_conditions = defaultdict(lambda: 0)
+        self.pokemon_format = ""
 
         self.name = None
         self.trapped = False
@@ -505,7 +506,6 @@ class Battler:
         # if there is an active pokemon, we want to look through it's moves
         if constants.ACTIVE in request_json:
             self._initialize_user_active_from_request_json(request_json)
-
         # if a team_dict exists, meaning we are playing a format where we selected our own team,
         # set the nature/evs for each pokmeon
         if self.team_dict is not None:
@@ -530,9 +530,11 @@ class Battler:
                         p for p in self.team_dict if p["species"] == other_forme_in_team
                     )
                 else:
-                    logger.warning("Could not find {} in team_dict. Falling back to serious nature and standard EVs (typical in Battle Hall).".format(pkmn.name))
-                    pkmn.nature = "serious"
-                    pkmn.evs = (85,) * 6
+                    logger.warning(
+                        "Could not find {} in team_dict; keeping request-derived spread".format(
+                            pkmn.name
+                        )
+                    )
                     continue
                 pkmn.nature = team_dict_pkmn["nature"] or "serious"
                 pkmn.evs = (

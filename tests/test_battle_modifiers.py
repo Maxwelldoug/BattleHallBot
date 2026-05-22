@@ -258,6 +258,16 @@ class TestRequestMessage(unittest.TestCase):
         request(self.battle, split_request_message)
         self.assertEqual(0, len(self.battle.user.reserve))
 
+    def test_request_ignores_malformed_payload(self):
+        split_request_message = ["", "request", "not-json"]
+
+        request(self.battle, split_request_message)
+
+        self.assertIsNone(self.battle.request_json)
+        self.assertIsNone(self.battle.rqid)
+        self.assertFalse(self.battle.force_switch)
+        self.assertFalse(self.battle.wait)
+
 
 class TestSwitchOrDrag(unittest.TestCase):
     def setUp(self):

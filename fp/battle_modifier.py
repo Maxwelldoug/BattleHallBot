@@ -200,7 +200,17 @@ def get_move_information(m):
 
 def request(battle, split_msg):
     if len(split_msg) >= 2:
-        battle_json = json.loads(split_msg[2].strip("'"))
+        payload = split_msg[2].strip("'").strip()
+        if not payload:
+            logger.warning("Ignoring empty battle request payload")
+            return
+
+        try:
+            battle_json = json.loads(payload)
+        except json.JSONDecodeError:
+            logger.warning("Ignoring malformed battle request payload: %s", payload)
+            return
+
         logger.debug("Received battle JSON from server: {}".format(battle_json))
         battle.rqid = battle_json[constants.RQID]
 

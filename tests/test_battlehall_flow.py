@@ -373,5 +373,53 @@ class TestBattleHallFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(battler.active.nature, "serious")
         self.assertEqual(battler.active.evs, (85,) * 6)
 
+    def test_battlehall_preserves_team_dict_constructor(self):
+        from fp.battle import Battler
+
+        battler = Battler()
+        battler.pokemon_format = "gen9battlehall"
+        battler.team_dict = [{
+            "name": "Genesect",
+            "species": "genesect",
+            "nature": "jolly",
+            "evs": {"hp": "0", "atk": "252", "def": "4", "spa": "0", "spd": "0", "spe": "252"}
+        }]
+
+        request_json = {
+            "active": [
+                {
+                    "moves": [{"move": "Spite", "id": "spite"}]
+                }
+            ],
+            "side": {
+                "name": "EvilWoodenPlank",
+                "id": "p1",
+                "pokemon": [
+                    {
+                        "ident": "p1: Genesect",
+                        "details": "Genesect, L100, M",
+                        "condition": "100/100",
+                        "active": True,
+                        "stats": {"atk": 100, "def": 100, "spa": 100, "spd": 100, "spe": 100},
+                        "moves": ["spite"],
+                        "baseAbility": "download",
+                        "item": "",
+                        "pokeball": "pokeball",
+                        "ability": "download",
+                        "teraType": "Steel",
+                        "terastallized": ""
+                    }
+                ]
+            },
+            "rqid": 2
+        }
+
+        battler.initialize_first_turn_user_from_json(request_json)
+
+        self.assertIsNotNone(battler.team_dict)
+        self.assertEqual(battler.team_dict[0]["species"], "genesect")
+        self.assertEqual(battler.active.nature, "jolly")
+        self.assertEqual(battler.active.evs, (0, 252, 4, 0, 0, 252))
+
 if __name__ == "__main__":
     unittest.main()

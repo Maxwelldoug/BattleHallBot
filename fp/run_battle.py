@@ -184,6 +184,8 @@ async def start_battle_common(
     battle = Battle(battle_tag)
     battle.opponent.account_name = opponent_name
     battle.pokemon_format = pokemon_battle_type
+    battle.user.pokemon_format = pokemon_battle_type
+    battle.opponent.pokemon_format = pokemon_battle_type
     battle.generation = pokemon_battle_type[:4]
 
     # wait until the opponent's identifier is received. This will be `p1` or `p2`.
@@ -207,12 +209,25 @@ async def get_first_request_json(
     while True:
         msg = await ps_websocket_client.receive_message(room=battle.battle_tag)
         msg_split = msg.split("|")
-        if msg_split[1].strip() == "request" and msg_split[2].strip():
-            user_json = json.loads(msg_split[2].strip("'"))
-            battle.request_json = user_json
-            battle.user.initialize_first_turn_user_from_json(user_json)
-            battle.rqid = user_json[constants.RQID]
-            return
+        if len(msg_split) < 3:
+            continue
+        if msg_split[1].strip() != "request":
+            continue
+
+        payload = msg_split[2].strip("'").strip()
+        if not payload:
+            continue
+
+        try:
+            user_json = json.loads(payload)
+        except json.JSONDecodeError:
+            logger.warning("Ignoring malformed first request payload: %s", payload)
+            continue
+
+        battle.request_json = user_json
+        battle.user.initialize_first_turn_user_from_json(user_json)
+        battle.rqid = user_json[constants.RQID]
+        return
 
 
 async def start_random_battle(
