@@ -25,6 +25,9 @@ class PSWebsocketClient:
     password = None
     last_message = None
     last_challenge_time = 0
+    room_queues = None
+    pending_battles_queue = None
+    router_task = None
 
     @classmethod
     async def create(cls, username, password, address):
@@ -38,6 +41,10 @@ class PSWebsocketClient:
             if password
             else "https://play.pokemonshowdown.com/action.php?"
         )
+        self.room_queues = {}
+        self.room_buffers = {}
+        self.pending_battles_queue = asyncio.Queue()
+        self.router_task = None
         return self
 
     async def join_room(self, room_name):
@@ -45,10 +52,76 @@ class PSWebsocketClient:
         await self.send_message("", [message])
         logger.debug("Joined room '{}'".format(room_name))
 
-    async def receive_message(self):
-        message = await self.websocket.recv()
-        logger.debug("Received message from websocket: {}".format(message))
-        return message
+    def parse_showdown_frames(self, msg):
+        frames = []
+        if msg.startswith(">"):
+            blocks = msg.split("\n>")
+            for i, block in enumerate(blocks):
+                if i == 0:
+                    block = block[1:]
+                parts = block.split("\n", 1)
+                room = parts[0].strip()
+                content = parts[1] if len(parts) > 1 else ""
+                frames.append((room, content))
+        else:
+            frames.append(("", msg))
+        return frames
+
+    async def _message_router_loop(self):
+        try:
+            while True:
+                msg = await self.websocket.recv()
+                logger.debug("Router received raw: {}".format(msg))
+                frames = self.parse_showdown_frames(msg)
+                for room, content in frames:
+                    reconstructed = f">{room}\n{content}" if room else content
+                    
+                    if room not in self.room_queues:
+                        self.room_queues[room] = asyncio.Queue()
+                        
+                    await self.room_queues[room].put(reconstructed)
+                    
+                    if room.startswith("battle-") and "|init|" in content:
+                        await self.pending_battles_queue.put((room, reconstructed))
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.exception("Exception in message router loop: {}".format(e))
+
+    def start_router(self):
+        if self.router_task is None:
+            self.router_task = asyncio.create_task(self._message_router_loop())
+            logger.info("Message router started.")
+
+    async def stop_router(self):
+        if self.router_task is not None:
+            self.router_task.cancel()
+            try:
+                await self.router_task
+            except asyncio.CancelledError:
+                pass
+            self.router_task = None
+            logger.info("Message router stopped.")
+
+    async def receive_message(self, room=None):
+        r = room if room is not None else ""
+        if r in self.room_buffers and self.room_buffers[r]:
+            return self.room_buffers[r].pop(0)
+
+        if self.router_task is not None:
+            if r not in self.room_queues:
+                self.room_queues[r] = asyncio.Queue()
+            return await self.room_queues[r].get()
+        else:
+            message = await self.websocket.recv()
+            logger.debug("Received message from websocket: {}".format(message))
+            return message
+
+    def push_back_message(self, message, room=None):
+        r = room if room is not None else ""
+        if r not in self.room_buffers:
+            self.room_buffers[r] = []
+        self.room_buffers[r].append(message)
 
     async def send_message(self, room, message_list):
         message = room + "|" + "|".join(message_list)
@@ -77,6 +150,7 @@ class PSWebsocketClient:
                 break
 
     async def close(self):
+        await self.stop_router()
         await self.websocket.close()
 
     async def get_id_and_challstr(self):
@@ -173,8 +247,10 @@ class PSWebsocketClient:
         await self.send_message("", message)
 
         while True:
-            msg = await self.receive_message()
+            msg = await self.receive_message(room=battle_tag)
             if battle_tag in msg and "deinit" in msg:
+                self.room_queues.pop(battle_tag, None)
+                self.room_buffers.pop(battle_tag, None)
                 return
 
     async def save_replay(self, battle_tag):

@@ -61,6 +61,7 @@ class BotModes(Enum):
     challenge_user = auto()
     accept_challenge = auto()
     search_ladder = auto()
+    battlehall = auto()
 
 
 class _FoulPlayConfig:
