@@ -39,6 +39,13 @@ class TestNormalizeName(unittest.TestCase):
 
         self.assertEqual(expected_result, result)
 
+    def test_removes_group_symbols(self):
+        n = "~@+%#&!FoulPlayBot"
+        expected_result = "foulplaybot"
+        result = normalize_name(n)
+
+        self.assertEqual(expected_result, result)
+
 
 class TestGetPokemonInfoFromCondition(unittest.TestCase):
     def test_basic_case(self):

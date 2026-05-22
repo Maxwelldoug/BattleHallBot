@@ -530,7 +530,10 @@ class Battler:
                         p for p in self.team_dict if p["species"] == other_forme_in_team
                     )
                 else:
-                    raise ValueError("Could not find {} in team_dict".format(pkmn.name))
+                    logger.warning("Could not find {} in team_dict. Falling back to serious nature and standard EVs (typical in Battle Hall).".format(pkmn.name))
+                    pkmn.nature = "serious"
+                    pkmn.evs = (85,) * 6
+                    continue
                 pkmn.nature = team_dict_pkmn["nature"] or "serious"
                 pkmn.evs = (
                     int(team_dict_pkmn["evs"]["hp"] or 0),

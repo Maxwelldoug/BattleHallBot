@@ -258,7 +258,7 @@ async def start_standard_battle(
     else:
         battle.battle_type = BattleType.STANDARD_BATTLE
 
-    if battle.generation in constants.NO_TEAM_PREVIEW_GENS:
+    if battle.generation in constants.NO_TEAM_PREVIEW_GENS or "battlehall" in pokemon_battle_type:
         while True:
             if constants.START_STRING in msg:
                 battle.started = True

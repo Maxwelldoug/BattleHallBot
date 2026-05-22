@@ -119,7 +119,8 @@ async def run_foul_play():
         active_battle = None
         state_lock = asyncio.Lock()
 
-        genesect_packed = "Genesect|||Download|uturn|||||||||||"
+        from teams.team_converter import json_to_packed
+
         genesect_dict = [{
             "name": "Genesect",
             "species": "genesect",
@@ -132,8 +133,10 @@ async def run_foul_play():
             "shiny": "",
             "nature": "serious",
             "ivs": {"hp": "31", "atk": "31", "def": "31", "spa": "31", "spd": "31", "spe": "31"},
-            "evs": {"hp": "0", "atk": "0", "def": "0", "spa": "0", "spd": "0", "spe": "0"}
+            "evs": {"hp": "0", "atk": "252", "def": "4", "spa": "0", "spd": "0", "spe": "252"},
+            "happiness": 255
         }]
+        genesect_packed = json_to_packed(genesect_dict)
 
 
         async def send_reply(room, player_display, msg_text):
@@ -152,7 +155,7 @@ async def run_foul_play():
                     and active_battle["challenge_sent_time"] == challenge_sent_time
                     and "battle_started" not in active_battle
                 ):
-                    await ps_websocket_client.send_message("", ["/cancel {}".format(active_battle["player_display"])])
+                    await ps_websocket_client.send_message("", ["/cancelchallenge {}".format(active_battle["player_display"])])
                     await send_reply(active_battle["room_context"], active_battle["player_display"], "Challenge timed out.")
                     active_battle = None
 

@@ -27,6 +27,9 @@ class MockWebsocket:
             await asyncio.sleep(0.1)
             raise asyncio.CancelledError()
 
+    async def send(self, message):
+        pass
+
 class TestBattleHallFlow(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         db.DB_FILE = "test_battlehall_flow.db"
@@ -115,7 +118,7 @@ class TestBattleHallFlow(unittest.IsolatedAsyncioTestCase):
         cancel_called = []
         async def mock_send_message(room, msgs):
             for m in msgs:
-                if "/cancel" in m:
+                if "/cancelchallenge" in m:
                     cancel_called.append(m)
 
         # An old timeout monitor wakes up for a challenge sent at 100.0
@@ -131,7 +134,7 @@ class TestBattleHallFlow(unittest.IsolatedAsyncioTestCase):
             and active_battle["challenge_sent_time"] == challenge_sent_time_old
             and "battle_started" not in active_battle
         ):
-            await mock_send_message("", ["/cancel {}".format(active_battle["player_display"])])
+            await mock_send_message("", ["/cancelchallenge {}".format(active_battle["player_display"])])
             active_battle = None
 
         # Verify the newer challenge was NOT canceled/reset
@@ -147,13 +150,13 @@ class TestBattleHallFlow(unittest.IsolatedAsyncioTestCase):
             and active_battle["challenge_sent_time"] == challenge_sent_time_matching
             and "battle_started" not in active_battle
         ):
-            await mock_send_message("", ["/cancel {}".format(active_battle["player_display"])])
+            await mock_send_message("", ["/cancelchallenge {}".format(active_battle["player_display"])])
             active_battle = None
 
         # Verify the challenge WAS canceled
         self.assertIsNone(active_battle)
         self.assertEqual(len(cancel_called), 1)
-        self.assertIn("/cancel Max", cancel_called[0])
+        self.assertIn("/cancelchallenge Max", cancel_called[0])
 
     async def test_unsolicited_battle_rejection(self):
         active_battle = {
@@ -288,6 +291,87 @@ class TestBattleHallFlow(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNotNone(current_b)
         self.assertEqual(current_b["player_userid"], "max")
+
+    async def test_case_insensitive_and_fallback_routing(self):
+        client = PSWebsocketClient()
+        client.websocket = MockWebsocket([])
+        client.room_queues = {}
+        client.room_buffers = {}
+        client.pending_battles_queue = asyncio.Queue()
+        
+        # Test case insensitivity (joining Lobby, receiving on lobby)
+        await client.join_room("Lobby")
+        self.assertEqual(client.lobby_room, "Lobby")
+        
+        # Simulate router thread processing a message with mixed casing and un-prefixed fallback
+        messages_to_route = [
+            ">Lobby\n|c:|12345|~User|hello",
+            "|c:|67890|~User|@battlehall fire 50"
+        ]
+        
+        client.websocket = MockWebsocket(messages_to_route)
+        client.start_router()
+        await asyncio.sleep(0.05)
+        
+        # Verify both messages were mapped to the lowercase "lobby" queue
+        m1 = await client.receive_message(room="lobby")
+        m2 = await client.receive_message(room="lobby")
+        
+        self.assertEqual(m1, ">Lobby\n|c:|12345|~User|hello")
+        self.assertEqual(m2, "|c:|67890|~User|@battlehall fire 50")
+        
+        await client.stop_router()
+
+    def test_team_dict_fallback_graceful(self):
+        from fp.battle import Battler
+        battler = Battler()
+        
+        # Define a team_dict with only Genesect (similar to our Battle Hall setup)
+        battler.team_dict = [{
+            "name": "Genesect",
+            "species": "genesect",
+            "nature": "serious",
+            "evs": {"hp": "0", "atk": "252", "def": "4", "spa": "0", "spd": "0", "spe": "252"}
+        }]
+        
+        # Emulate a Showdown request_json containing a Cacturne (not Genesect)
+        request_json = {
+            "active": [
+                {
+                    "moves": [{"move": "Spite", "id": "spite"}]
+                }
+            ],
+            "side": {
+                "name": "EvilWoodenPlank",
+                "id": "p1",
+                "pokemon": [
+                    {
+                        "ident": "p1: Cacturne",
+                        "details": "Cacturne, L18, M",
+                        "condition": "57/57",
+                        "active": True,
+                        "stats": {"atk": 46, "def": 26, "spa": 46, "spd": 38, "spe": 39},
+                        "moves": ["spite"],
+                        "baseAbility": "sandveil",
+                        "item": "wiseglasses",
+                        "pokeball": "pokeball",
+                        "ability": "sandveil",
+                        "teraType": "Grass",
+                        "terastallized": ""
+                    }
+                ]
+            },
+            "rqid": 2
+        }
+        
+        # This should execute cleanly without raising ValueError because of the fallback mechanism
+        battler.initialize_first_turn_user_from_json(request_json)
+        
+        # Verify the active pokemon is initialized with default serious nature and standard EVs
+        self.assertIsNotNone(battler.active)
+        self.assertEqual(battler.active.name, "cacturne")
+        self.assertEqual(battler.active.nature, "serious")
+        self.assertEqual(battler.active.evs, (85,) * 6)
 
 if __name__ == "__main__":
     unittest.main()

@@ -28,6 +28,7 @@ class PSWebsocketClient:
     room_queues = None
     pending_battles_queue = None
     router_task = None
+    lobby_room = None
 
     @classmethod
     async def create(cls, username, password, address):
@@ -45,9 +46,11 @@ class PSWebsocketClient:
         self.room_buffers = {}
         self.pending_battles_queue = asyncio.Queue()
         self.router_task = None
+        self.lobby_room = None
         return self
 
     async def join_room(self, room_name):
+        self.lobby_room = room_name
         message = "/join {}".format(room_name)
         await self.send_message("", [message])
         logger.debug("Joined room '{}'".format(room_name))
@@ -76,13 +79,20 @@ class PSWebsocketClient:
                 for room, content in frames:
                     reconstructed = f">{room}\n{content}" if room else content
                     
-                    if room not in self.room_queues:
-                        self.room_queues[room] = asyncio.Queue()
-                        
-                    await self.room_queues[room].put(reconstructed)
+                    room_key = room.lower()
+                    # Fallback routing for un-prefixed lobby messages
+                    if not room_key and self.lobby_room:
+                        parts = content.split("|")
+                        if len(parts) >= 2 and parts[1] in ("c", "c:", "raw", "j", "J", "l", "L", "html", "users", "title"):
+                            room_key = self.lobby_room.lower()
                     
-                    if room.startswith("battle-") and "|init|" in content:
-                        await self.pending_battles_queue.put((room, reconstructed))
+                    if room_key not in self.room_queues:
+                        self.room_queues[room_key] = asyncio.Queue()
+                        
+                    await self.room_queues[room_key].put(reconstructed)
+                    
+                    if room_key.startswith("battle-") and "|init|" in content:
+                        await self.pending_battles_queue.put((room_key, reconstructed))
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -104,7 +114,7 @@ class PSWebsocketClient:
             logger.info("Message router stopped.")
 
     async def receive_message(self, room=None):
-        r = room if room is not None else ""
+        r = room.lower() if room is not None else ""
         if r in self.room_buffers and self.room_buffers[r]:
             return self.room_buffers[r].pop(0)
 
@@ -118,7 +128,7 @@ class PSWebsocketClient:
             return message
 
     def push_back_message(self, message, room=None):
-        r = room if room is not None else ""
+        r = room.lower() if room is not None else ""
         if r not in self.room_buffers:
             self.room_buffers[r] = []
         self.room_buffers[r].append(message)
@@ -246,11 +256,12 @@ class PSWebsocketClient:
         message = ["/leave {}".format(battle_tag)]
         await self.send_message("", message)
 
+        battle_tag_key = battle_tag.lower()
         while True:
-            msg = await self.receive_message(room=battle_tag)
-            if battle_tag in msg and "deinit" in msg:
-                self.room_queues.pop(battle_tag, None)
-                self.room_buffers.pop(battle_tag, None)
+            msg = await self.receive_message(room=battle_tag_key)
+            if battle_tag_key in msg.lower() and "deinit" in msg.lower():
+                self.room_queues.pop(battle_tag_key, None)
+                self.room_buffers.pop(battle_tag_key, None)
                 return
 
     async def save_replay(self, battle_tag):
