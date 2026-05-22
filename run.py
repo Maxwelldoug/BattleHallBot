@@ -249,16 +249,16 @@ async def run_foul_play():
                 return
 
             cleaned_text = text.strip()
-            if cleaned_text.startswith("!battlehallreset"):
+            if cleaned_text.startswith("@battlehallreset"):
                 player_id = db.get_or_create_player(sender_userid, username)
                 db.reset_player_all_wins(player_id)
                 await send_reply(room_context, username, "All of your Battle Hall wins have been reset to 0.")
                 return
 
-            elif cleaned_text.startswith("!battlehall"):
+            elif cleaned_text.startswith("@battlehall"):
                 parts = cleaned_text.split()
                 if len(parts) != 3:
-                    await send_reply(room_context, username, "Usage: !battlehall [type] [level] (e.g., !battlehall fire 50)")
+                    await send_reply(room_context, username, "Usage: @battlehall [type] [level] (e.g., @battlehall fire 50)")
                     return
 
                 type_input = parts[1]
@@ -292,7 +292,7 @@ async def run_foul_play():
                     player_id = db.get_or_create_player(sender_userid, username)
                     wins = db.get_player_wins(player_id, type_id)
                     if wins >= 10:
-                        await send_reply(room_context, username, "You have already beaten {} 10 times! Choose another type or reset with !battlehallreset.".format(printed_type))
+                        await send_reply(room_context, username, "You have already beaten {} 10 times! Choose another type or reset with @battlehallreset.".format(printed_type))
                         return
 
                     other_types_with_wins = db.get_other_types_with_wins_count(player_id, type_id)
