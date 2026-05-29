@@ -120,6 +120,14 @@ def get_other_types_with_wins_count(player_id, exclude_type_id):
     conn.close()
     return count
 
+def get_player_total_wins(player_id):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT SUM(wins) FROM battles WHERE player_id = ?;", (player_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return row[0] if row and row[0] is not None else 0
+
 def increment_player_wins(player_id, type_id):
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()

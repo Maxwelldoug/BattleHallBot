@@ -218,11 +218,12 @@ async def run_foul_play():
                     if winner_userid == opponent_userid:
                         db.increment_player_wins(current_b["player_id"], current_b["type_id"])
                         new_wins = db.get_player_wins(current_b["player_id"], current_b["type_id"])
+                        total_player_wins = db.get_player_total_wins(current_b["player_id"])
                         await send_reply(
                             current_b["room_context"], 
                             current_b["player_display"], 
-                            "Congratulations! You won the {} battle. Your total wins for this type is now {}/10.".format(
-                                current_b['printed_type'], new_wins
+                            "Congratulations! You won the {} battle. Your total wins for this type is now {}/10 and your total wins for this run is now {}/180.".format(
+                                current_b['printed_type'], new_wins, total_player_wins
                             )
                         )
                     else:
