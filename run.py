@@ -117,6 +117,7 @@ async def run_foul_play():
         ps_websocket_client.start_router()
 
         active_battle = None
+        battle_hall_session = None  # Tracks current Battle Hall session (persists across multiple battles)
         state_lock = asyncio.Lock()
 
         from teams.team_converter import json_to_packed
@@ -148,7 +149,7 @@ async def run_foul_play():
         async def challenge_timeout_monitor(player_userid, challenge_sent_time):
             await asyncio.sleep(60)
             async with state_lock:
-                nonlocal active_battle
+                nonlocal active_battle, battle_hall_session
                 if (
                     active_battle 
                     and active_battle["player_userid"] == player_userid 
@@ -156,12 +157,13 @@ async def run_foul_play():
                     and "battle_started" not in active_battle
                 ):
                     await ps_websocket_client.send_message("", ["/cancelchallenge {}".format(active_battle["player_display"])])
-                    await send_reply(active_battle["room_context"], active_battle["player_display"], "Challenge timed out.")
+                    await send_reply(active_battle["room_context"], active_battle["player_display"], "Challenge timed out. You can send a new @battlehall command to retry.")
                     active_battle = None
+                    # Session persists so player can retry
 
 
         async def battle_orchestration_loop():
-            nonlocal active_battle
+            nonlocal active_battle, battle_hall_session
             while True:
                 battle_tag, msg = await ps_websocket_client.pending_battles_queue.get()
                 
@@ -226,6 +228,46 @@ async def run_foul_play():
                                 current_b['printed_type'], new_wins, total_player_wins
                             )
                         )
+                        
+                        # Check if we should auto-challenge for the next match
+                        async with state_lock:
+                            if (
+                                battle_hall_session is not None
+                                and battle_hall_session["player_userid"] == current_b["player_userid"]
+                                and new_wins < 10
+                            ):
+                                # Auto-challenge for the next match
+                                logger.info("Auto-challenging {} for next Battle Hall match".format(current_b["player_display"]))
+                                
+                                # Calculate new challenge level based on updated wins
+                                other_types_with_wins = db.get_other_types_with_wins_count(current_b["player_id"], current_b["type_id"])
+                                new_challenge_level = calculate_challenge_level(current_b["player_level"], new_wins, other_types_with_wins)
+                                
+                                # Update active_battle for the next challenge
+                                active_battle = {
+                                    "player_userid": current_b["player_userid"],
+                                    "player_display": current_b["player_display"],
+                                    "canonical_type": current_b["canonical_type"],
+                                    "printed_type": current_b['printed_type'],
+                                    "type_id": current_b["type_id"],
+                                    "player_id": current_b["player_id"],
+                                    "player_level": current_b["player_level"],
+                                    "challenge_level": new_challenge_level,
+                                    "room_context": current_b["room_context"],
+                                    "challenge_sent_time": time.time()
+                                }
+                                
+                                # Issue the next challenge
+                                await ps_websocket_client.send_message("", ["/battlehalllevel {}".format(new_challenge_level)])
+                                await ps_websocket_client.send_message("", ["/battlehalltype {}".format(current_b["canonical_type"])])
+                                await ps_websocket_client.update_team(genesect_packed)
+                                await ps_websocket_client.send_message("", ["/challenge {},gen9battlehall".format(current_b["player_display"])])
+                                await send_reply(current_b["room_context"], current_b["player_display"], "Challenged to a {} Battle (Rank {}, Level {})!".format(current_b['printed_type'], new_wins + 1, new_challenge_level))
+                                
+                                asyncio.create_task(challenge_timeout_monitor(current_b["player_userid"], active_battle["challenge_sent_time"]))
+                            else:
+                                active_battle = None
+                                battle_hall_session = None
                     else:
                         db.reset_player_all_wins(current_b["player_id"])
                         await send_reply(
@@ -233,6 +275,9 @@ async def run_foul_play():
                             current_b["player_display"], 
                             "You lost the battle! All of your Battle Hall wins have been reset to 0."
                         )
+                        async with state_lock:
+                            active_battle = None
+                            battle_hall_session = None
                 except Exception as e:
                     logger.exception("Error during battle: {}".format(e))
                     await send_reply(
@@ -240,14 +285,19 @@ async def run_foul_play():
                         current_b["player_display"], 
                         "An error occurred during the battle. Win/loss was not updated."
                     )
-                finally:
                     async with state_lock:
                         active_battle = None
+                        battle_hall_session = None
+                finally:
+                    if active_battle is None:
+                        async with state_lock:
+                            active_battle = None
+
 
         orchestrator_task = asyncio.create_task(battle_orchestration_loop())
 
         async def handle_incoming_text(username, text, room_context):
-            nonlocal active_battle
+            nonlocal active_battle, battle_hall_session
             sender_userid = normalize_name(username)
             if sender_userid == normalize_name(FoulPlayConfig.username):
                 return
@@ -257,6 +307,9 @@ async def run_foul_play():
                 player_id = db.get_or_create_player(sender_userid, username)
                 db.reset_player_all_wins(player_id)
                 await send_reply(room_context, username, "All of your Battle Hall wins have been reset to 0.")
+                async with state_lock:
+                    active_battle = None
+                    battle_hall_session = None
                 return
 
             elif cleaned_text.startswith("@battlehall"):
@@ -299,6 +352,27 @@ async def run_foul_play():
                         await send_reply(room_context, username, "You have already beaten {} 10 times! Choose another type or reset with @battlehallreset.".format(printed_type))
                         return
 
+                    # Check if we're continuing an existing session or starting a new one
+                    if battle_hall_session is not None and battle_hall_session["player_userid"] == sender_userid:
+                        # Resuming existing session - verify it's for the same type
+                        if battle_hall_session["type_id"] == type_id:
+                            logger.info("Resuming Battle Hall session for {} on {}".format(username, printed_type))
+                        else:
+                            # Different type selected - start a new session
+                            logger.info("New Battle Hall session for {} on {} (previous was {})".format(username, printed_type, battle_hall_session.get("printed_type", "unknown")))
+                            battle_hall_session = {
+                                "player_userid": sender_userid,
+                                "type_id": type_id,
+                                "printed_type": printed_type
+                            }
+                    else:
+                        # New session
+                        battle_hall_session = {
+                            "player_userid": sender_userid,
+                            "type_id": type_id,
+                            "printed_type": printed_type
+                        }
+
                     other_types_with_wins = db.get_other_types_with_wins_count(player_id, type_id)
                     challenge_level = calculate_challenge_level(player_level, wins, other_types_with_wins)
 
@@ -327,8 +401,9 @@ async def run_foul_play():
             elif "rejected the challenge" in cleaned_text or "cancelled the challenge" in cleaned_text:
                 async with state_lock:
                     if active_battle and active_battle["player_display"].lower() in cleaned_text.lower():
-                        await send_reply(active_battle["room_context"], active_battle["player_display"], "Challenge was rejected.")
+                        await send_reply(active_battle["room_context"], active_battle["player_display"], "Challenge was rejected. You can send @battlehall to retry.")
                         active_battle = None
+                        # Session persists so player can retry
 
         async def lobby_listener():
             while True:
