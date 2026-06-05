@@ -9,6 +9,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+class WebsocketConnectionLost(Exception):
+    time.sleep(30)
+    print("Websocket Connection Lost. Waiting 30 seconds and retrying.")
+    pass
+
+
 class LoginError(Exception):
     pass
 
@@ -29,6 +35,7 @@ class PSWebsocketClient:
     pending_battles_queue = None
     router_task = None
     lobby_room = None
+    router_shutdown_reason = None
 
     @classmethod
     async def create(cls, username, password, address):
@@ -95,11 +102,24 @@ class PSWebsocketClient:
                         await self.pending_battles_queue.put((room_key, reconstructed))
         except asyncio.CancelledError:
             pass
+        except websockets.exceptions.ConnectionClosed as e:
+            self.router_shutdown_reason = e
+            logger.warning("Message router stopped because the websocket closed: {}".format(e))
+            self._signal_router_shutdown()
         except Exception as e:
             logger.exception("Exception in message router loop: {}".format(e))
+        finally:
+            if self.router_task is asyncio.current_task():
+                self.router_task = None
+
+    def _signal_router_shutdown(self):
+        for queue in self.room_queues.values():
+            queue.put_nowait(None)
+        if self.pending_battles_queue is not None:
+            self.pending_battles_queue.put_nowait((None, None))
 
     def start_router(self):
-        if self.router_task is None:
+        if self.router_task is None or self.router_task.done():
             self.router_task = asyncio.create_task(self._message_router_loop())
             logger.info("Message router started.")
 
@@ -121,7 +141,10 @@ class PSWebsocketClient:
         if self.router_task is not None:
             if r not in self.room_queues:
                 self.room_queues[r] = asyncio.Queue()
-            return await self.room_queues[r].get()
+            message = await self.room_queues[r].get()
+            if message is None:
+                raise WebsocketConnectionLost("Websocket connection closed")
+            return message
         else:
             message = await self.websocket.recv()
             logger.debug("Received message from websocket: {}".format(message))

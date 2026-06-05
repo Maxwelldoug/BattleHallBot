@@ -2,13 +2,14 @@ import asyncio
 import json
 import logging
 import traceback
+from contextlib import suppress
 from copy import deepcopy
 
 from config import FoulPlayConfig, init_logging, BotModes
 
 from teams import load_team, TeamListIterator
 from fp.run_battle import pokemon_battle
-from fp.websocket_client import PSWebsocketClient
+from fp.websocket_client import PSWebsocketClient, WebsocketConnectionLost
 
 from data import all_move_json
 from data import pokedex
@@ -166,6 +167,8 @@ async def run_foul_play():
             nonlocal active_battle, battle_hall_session
             while True:
                 battle_tag, msg = await ps_websocket_client.pending_battles_queue.get()
+                if battle_tag is None and msg is None:
+                    raise WebsocketConnectionLost("Battle Hall router stopped")
                 
                 # 1. Enforce strict Battle Hall format checking
                 if not battle_tag.startswith("battle-gen9battlehall-"):
@@ -427,14 +430,37 @@ async def run_foul_play():
                     text = "|".join(parts[4:])
                     await handle_incoming_text(sender, text, "")
 
-        try:
-            await asyncio.gather(
-                lobby_listener(),
-                pm_listener()
+        async def connect_battlehall_session():
+            nonlocal ps_websocket_client
+            ps_websocket_client = await PSWebsocketClient.create(
+                FoulPlayConfig.username, FoulPlayConfig.password, FoulPlayConfig.websocket_uri
             )
-        finally:
-            orchestrator_task.cancel()
-            await ps_websocket_client.close()
+
+            FoulPlayConfig.user_id = await ps_websocket_client.login()
+
+            if FoulPlayConfig.avatar is not None:
+                await ps_websocket_client.avatar(FoulPlayConfig.avatar)
+
+            await ps_websocket_client.join_room(lobby_room)
+            ps_websocket_client.start_router()
+
+        while True:
+            orchestrator_task = None
+            try:
+                await connect_battlehall_session()
+                orchestrator_task = asyncio.create_task(battle_orchestration_loop())
+                await asyncio.gather(lobby_listener(), pm_listener(), orchestrator_task)
+                break
+            except WebsocketConnectionLost:
+                logger.warning("Battle Hall websocket closed; reconnecting.")
+                active_battle = None
+                battle_hall_session = None
+            finally:
+                if orchestrator_task is not None:
+                    orchestrator_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await orchestrator_task
+                await ps_websocket_client.close()
 
     while True:
         if FoulPlayConfig.requires_team():
