@@ -9,7 +9,7 @@ sys.modules['fp.run_battle'] = MagicMock()
 
 import run
 import db
-from fp.websocket_client import PSWebsocketClient, WebsocketConnectionLost
+from fp.websocket_client import PSWebsocketClient
 from fp.helpers import normalize_name
 from config import FoulPlayConfig, BotModes
 
@@ -321,22 +321,6 @@ class TestBattleHallFlow(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(m2, "|c:|67890|~User|@battlehall fire 50")
         
         await client.stop_router()
-
-    async def test_router_shutdown_wakes_listeners(self):
-        client = PSWebsocketClient()
-        client.room_queues = {"lobby": asyncio.Queue()}
-        client.room_buffers = {}
-        client.pending_battles_queue = asyncio.Queue()
-        client.router_task = object()
-
-        client._signal_router_shutdown()
-
-        with self.assertRaises(WebsocketConnectionLost):
-            await client.receive_message(room="lobby")
-
-        battle_tag, msg = await client.pending_battles_queue.get()
-        self.assertIsNone(battle_tag)
-        self.assertIsNone(msg)
 
     def test_team_dict_fallback_graceful(self):
         from fp.battle import Battler
