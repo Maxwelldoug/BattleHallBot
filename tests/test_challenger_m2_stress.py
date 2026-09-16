@@ -445,25 +445,22 @@ class TestMilestoneM2EmpiricalStress(unittest.TestCase):
         with self.assertRaises(sqlite3.IntegrityError):
             db.increment_tower_streak(player_id=999999, format_type="singles")
 
-    def test_connection_leak_on_exception_causes_database_lock(self):
+    def test_database_state_after_exception(self):
         """
-        DEFECT CONFIRMATION:
-        Demonstrates that db helper functions (increment_tower_streak, increment_factory_streak,
-        save_session, etc.) lack `try...finally: conn.close()` error handling. When an exception
-        occurs, the unclosed SQLite connection retains an exclusive transaction lock, causing
-        subsequent database calls to hang for 5s and fail with OperationalError: database is locked.
+        Verify that database operations succeed cleanly after an exception,
+        ensuring connections and transactions are not leaked or left locked.
         """
-        self._create_isolated_db("test_defect_connection_leak")
+        self._create_isolated_db("test_db_state_after_exception")
         # Step 1: Trigger an IntegrityError
         try:
             db.increment_tower_streak(player_id=999999, format_type="singles")
         except sqlite3.IntegrityError:
             pass
 
-        # Step 2: Attempt a subsequent valid database operation
-        # Due to leaked connection holding an active transaction lock, this raises OperationalError: database is locked
-        with self.assertRaises(sqlite3.OperationalError, msg="Database is locked due to leaked connection from preceding exception"):
-            db.get_or_create_player("user_after_leak", "UserAfterLeak")
+        # Step 2: Attempt a subsequent valid database operation; must succeed without OperationalError
+        player_id = db.get_or_create_player("user_after_exception", "UserAfterException")
+        self.assertIsNotNone(player_id)
+        self.assertGreater(player_id, 0)
 
 
 if __name__ == "__main__":
