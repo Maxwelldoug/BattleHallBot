@@ -112,6 +112,8 @@ async def run_foul_play():
         from fp.managers.battle_manager import ActiveBattleManager
         from fp.managers.command_dispatcher import CommandDispatcher
         from fp.modes.battle_hall import BattleHallMode
+        from fp.modes.battle_tower import BattleTowerMode
+        from fp.modes.battle_factory import BattleFactoryMode
 
         db.init_db()
         lobby_room = FoulPlayConfig.room_name or "lobby"
@@ -133,7 +135,11 @@ async def run_foul_play():
             challenge_dispatcher=challenge_dispatcher,
         )
         battle_hall_mode = BattleHallMode(challenge_dispatcher)
+        battle_tower_mode = BattleTowerMode(challenge_dispatcher)
+        battle_factory_mode = BattleFactoryMode(challenge_dispatcher)
         command_dispatcher.register_mode(battle_hall_mode)
+        command_dispatcher.register_mode(battle_tower_mode)
+        command_dispatcher.register_mode(battle_factory_mode)
 
         battle_manager.start_orchestrator()
         command_dispatcher.start_listeners(lobby_room)
