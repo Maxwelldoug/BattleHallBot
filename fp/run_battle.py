@@ -1,3 +1,4 @@
+import os
 import json
 import asyncio
 import concurrent.futures
@@ -8,11 +9,12 @@ from data.pkmn_sets import RandomBattleTeamDatasets, TeamDatasets
 from data.pkmn_sets import SmogonSets
 import constants
 from constants import BattleType
-from config import FoulPlayConfig, SaveReplay
+from config import FoulPlayConfig, SaveReplay, CustomFormatter
 from fp.battle import LastUsedMove, Pokemon, Battle
 from fp.battle_modifier import async_update_battle, process_battle_updates
 from fp.helpers import normalize_name
 from fp.search.main import find_best_move
+from fp.search.compute_pool import MCTSComputePool
 
 from fp.websocket_client import PSWebsocketClient
 
@@ -83,11 +85,10 @@ async def async_pick_move(battle):
     if not battle_copy.team_preview:
         battle_copy.user.update_from_request_json(battle_copy.request_json)
 
-    loop = asyncio.get_event_loop()
-    with concurrent.futures.ThreadPoolExecutor() as pool:
-        best_move = await loop.run_in_executor(pool, find_best_move, battle_copy)
+    best_move = await MCTSComputePool.get_instance().find_best_move_async(battle_copy)
+    pkmn_name = battle.user.active.name if battle.user.active else ""
     battle.user.last_selected_move = LastUsedMove(
-        battle.user.active.name,
+        pkmn_name,
         best_move.removesuffix("-tera").removesuffix("-mega"),
         battle.turn,
     )
@@ -176,10 +177,6 @@ async def start_battle_common(
     ps_websocket_client: PSWebsocketClient, pokemon_battle_type, battle_tag=None
 ):
     battle_tag, opponent_name = await get_battle_tag_and_opponent(ps_websocket_client, battle_tag=battle_tag)
-    if FoulPlayConfig.log_to_file:
-        FoulPlayConfig.file_log_handler.do_rollover(
-            "{}_{}.log".format(battle_tag, opponent_name)
-        )
 
     battle = Battle(battle_tag)
     battle.opponent.account_name = opponent_name
@@ -187,6 +184,16 @@ async def start_battle_common(
     battle.user.pokemon_format = pokemon_battle_type
     battle.opponent.pokemon_format = pokemon_battle_type
     battle.generation = pokemon_battle_type[:4]
+    battle.file_log_handler = None
+
+    if FoulPlayConfig.log_to_file:
+        log_filename = "logs/{}_{}.log".format(battle_tag, opponent_name).replace("/", "_")
+        os.makedirs("logs", exist_ok=True)
+        handler = logging.FileHandler(log_filename, encoding="utf-8")
+        handler.setLevel(logging.DEBUG)
+        handler.setFormatter(CustomFormatter())
+        logging.getLogger().addHandler(handler)
+        battle.file_log_handler = handler
 
     # wait until the opponent's identifier is received. This will be `p1` or `p2`.
     #
@@ -364,32 +371,38 @@ async def start_battle(ps_websocket_client, pokemon_battle_type, team_dict, batt
 
 
 async def pokemon_battle(ps_websocket_client, pokemon_battle_type, team_dict, battle_tag=None):
-    battle = await start_battle(ps_websocket_client, pokemon_battle_type, team_dict, battle_tag=battle_tag)
-    while True:
-        msg = await ps_websocket_client.receive_message(room=battle.battle_tag)
-        if battle_is_finished(battle.battle_tag, msg):
-            winner = (
-                msg.split(constants.WIN_STRING)[-1].split("\n")[0].strip()
-                if constants.WIN_STRING in msg
-                else None
-            )
-            logger.info("Winner: {}".format(winner))
-            if (
-                FoulPlayConfig.save_replay == SaveReplay.always
-                or (
-                    FoulPlayConfig.save_replay == SaveReplay.on_loss
-                    and winner != FoulPlayConfig.username
+    battle = None
+    try:
+        battle = await start_battle(ps_websocket_client, pokemon_battle_type, team_dict, battle_tag=battle_tag)
+        while True:
+            msg = await ps_websocket_client.receive_message(room=battle.battle_tag)
+            if battle_is_finished(battle.battle_tag, msg):
+                winner = (
+                    msg.split(constants.WIN_STRING)[-1].split("\n")[0].strip()
+                    if constants.WIN_STRING in msg
+                    else None
                 )
-                or (
-                    FoulPlayConfig.save_replay == SaveReplay.on_win
-                    and winner == FoulPlayConfig.username
-                )
-            ):
-                await ps_websocket_client.save_replay(battle.battle_tag)
-            await ps_websocket_client.leave_battle(battle.battle_tag)
-            return winner
-        else:
-            action_required = await async_update_battle(battle, msg)
-            if action_required and not battle.wait:
-                best_move = await async_pick_move(battle)
-                await ps_websocket_client.send_message(battle.battle_tag, best_move)
+                logger.info("[{}] Winner: {}".format(battle.battle_tag, winner))
+                if (
+                    FoulPlayConfig.save_replay == SaveReplay.always
+                    or (
+                        FoulPlayConfig.save_replay == SaveReplay.on_loss
+                        and winner != FoulPlayConfig.username
+                    )
+                    or (
+                        FoulPlayConfig.save_replay == SaveReplay.on_win
+                        and winner == FoulPlayConfig.username
+                    )
+                ):
+                    await ps_websocket_client.save_replay(battle.battle_tag)
+                await ps_websocket_client.leave_battle(battle.battle_tag)
+                return winner
+            else:
+                action_required = await async_update_battle(battle, msg)
+                if action_required and not battle.wait:
+                    best_move = await async_pick_move(battle)
+                    await ps_websocket_client.send_message(battle.battle_tag, best_move)
+    finally:
+        if battle is not None and getattr(battle, "file_log_handler", None) is not None:
+            logging.getLogger().removeHandler(battle.file_log_handler)
+            battle.file_log_handler.close()

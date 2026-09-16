@@ -2,6 +2,7 @@ import logging
 import random
 from concurrent.futures import ProcessPoolExecutor
 from copy import deepcopy
+from typing import Optional
 
 from constants import BattleType
 from fp.battle import Battle
@@ -100,7 +101,7 @@ def search_time_num_battles_standard_battle(battle):
         return FoulPlayConfig.parallelism, FoulPlayConfig.search_time_ms
 
 
-def find_best_move(battle: Battle) -> str:
+def find_best_move(battle: Battle, executor: Optional[ProcessPoolExecutor] = None) -> str:
     battle = deepcopy(battle)
     if battle.team_preview:
         battle.user.active = battle.user.reserve.pop(0)
@@ -128,7 +129,19 @@ def find_best_move(battle: Battle) -> str:
     logger.info(
         "Sampling {} battles at {}ms each".format(num_battles, search_time_per_battle)
     )
-    with ProcessPoolExecutor(max_workers=FoulPlayConfig.parallelism) as executor:
+    if executor is None:
+        with ProcessPoolExecutor(max_workers=FoulPlayConfig.parallelism) as local_executor:
+            futures = []
+            for index, (b, chance) in enumerate(battles):
+                fut = local_executor.submit(
+                    get_result_from_mcts,
+                    battle_to_poke_engine_state(b).to_string(),
+                    search_time_per_battle,
+                    index,
+                )
+                futures.append((fut, chance, index))
+            mcts_results = [(fut.result(), chance, index) for (fut, chance, index) in futures]
+    else:
         futures = []
         for index, (b, chance) in enumerate(battles):
             fut = executor.submit(
@@ -138,8 +151,8 @@ def find_best_move(battle: Battle) -> str:
                 index,
             )
             futures.append((fut, chance, index))
+        mcts_results = [(fut.result(), chance, index) for (fut, chance, index) in futures]
 
-    mcts_results = [(fut.result(), chance, index) for (fut, chance, index) in futures]
     choice = select_move_from_mcts_results(mcts_results)
     logger.info("Choice: {}".format(choice))
     return choice

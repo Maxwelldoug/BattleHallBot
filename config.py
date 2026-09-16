@@ -85,6 +85,8 @@ class _FoulPlayConfig:
     log_to_file: bool
     stdout_log_handler: logging.StreamHandler
     file_log_handler: Optional[CustomRotatingFileHandler]
+    max_concurrent_battles: int = 4
+    max_parallel_searches: int = 2
 
     def configure(self):
         parser = argparse.ArgumentParser()
@@ -123,6 +125,18 @@ class _FoulPlayConfig:
             type=int,
             default=1,
             help="Number of states to search in parallel",
+        )
+        parser.add_argument(
+            "--max-concurrent-battles",
+            type=int,
+            default=4,
+            help="Maximum number of battles to run simultaneously",
+        )
+        parser.add_argument(
+            "--max-parallel-searches",
+            type=int,
+            default=2,
+            help="Maximum number of concurrent MCTS searches across battles",
         )
         parser.add_argument(
             "--run-count",
@@ -170,6 +184,8 @@ class _FoulPlayConfig:
         self.smogon_stats = args.smogon_stats_format
         self.search_time_ms = args.search_time_ms
         self.parallelism = args.search_parallelism
+        self.max_concurrent_battles = args.max_concurrent_battles
+        self.max_parallel_searches = args.max_parallel_searches
         self.run_count = args.run_count
         self.team_name = args.team_name or self.pokemon_format
         self.team_list = args.team_list
