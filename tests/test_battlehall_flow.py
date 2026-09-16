@@ -4,8 +4,9 @@ import os
 import sqlite3
 import sys
 from unittest.mock import MagicMock
-# Mock fp.run_battle module so we do not import poke_engine which has a missing Rust dependency
+# Mock modules with missing native/system dependencies
 sys.modules['fp.run_battle'] = MagicMock()
+sys.modules['websockets'] = MagicMock()
 
 import run
 import db
