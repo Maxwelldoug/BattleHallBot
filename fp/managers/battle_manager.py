@@ -364,12 +364,22 @@ class ActiveBattleManager:
             )
 
             # Run the battle asynchronously
-            winner = await fp.run_battle.pokemon_battle(
-                self.ps_websocket_client,
-                instance.battle_config.pokemon_format,
-                instance.battle_config.team_dict,
-                battle_tag=battle_tag,
-            )
+            # Doubles formats use the heuristic battler; singles use MCTS
+            if "doubles" in instance.battle_config.pokemon_format:
+                from fp.doubles_battle import doubles_pokemon_battle
+                winner = await doubles_pokemon_battle(
+                    self.ps_websocket_client,
+                    instance.battle_config.pokemon_format,
+                    instance.battle_config.team_dict,
+                    battle_tag=battle_tag,
+                )
+            else:
+                winner = await fp.run_battle.pokemon_battle(
+                    self.ps_websocket_client,
+                    instance.battle_config.pokemon_format,
+                    instance.battle_config.team_dict,
+                    battle_tag=battle_tag,
+                )
 
             # Mode lifecycle end hook
             await instance.mode.on_battle_end(
