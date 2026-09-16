@@ -252,17 +252,28 @@ class PSWebsocketClient:
         message = ["/search {}".format(battle_format)]
         await self.send_message("", message)
 
-    async def leave_battle(self, battle_tag):
+    async def leave_battle(self, battle_tag, timeout=5.0):
         message = ["/leave {}".format(battle_tag)]
         await self.send_message("", message)
 
         battle_tag_key = battle_tag.lower()
-        while True:
-            msg = await self.receive_message(room=battle_tag_key)
-            if battle_tag_key in msg.lower() and "deinit" in msg.lower():
-                self.room_queues.pop(battle_tag_key, None)
-                self.room_buffers.pop(battle_tag_key, None)
-                return
+        try:
+            while True:
+                msg = await asyncio.wait_for(
+                    self.receive_message(room=battle_tag_key),
+                    timeout=timeout,
+                )
+                if battle_tag_key in msg.lower() and "deinit" in msg.lower():
+                    break
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Timeout waiting for deinit after leaving room {}".format(
+                    battle_tag
+                )
+            )
+        finally:
+            self.room_queues.pop(battle_tag_key, None)
+            self.room_buffers.pop(battle_tag_key, None)
 
     async def save_replay(self, battle_tag):
         message = ["/savereplay"]
