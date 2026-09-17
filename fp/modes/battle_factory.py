@@ -12,8 +12,8 @@ Game flow:
   7. Bot uses /factoryteam <player_display>, <packed>  to register
      the player's real team with the server.
   8. Bot uses /factoryteam <bot_display>, <packed> for the opponent team.
-  9. Both sides submit a Genesect dummy team; the server substitutes real
-     sets at battle start.
+  9. Both sides submit no team (/utm null); the server assigns the registered
+     factory teams at battle start.
   10. After the battle:
       - Win: streak++, present opponent's 3 sets, player picks via
              @factory swap <opp_idx> <my_idx>  or  @factory pass.
@@ -37,34 +37,8 @@ from typing import List, Optional, Dict, Any, Tuple
 import db
 from fp.helpers import normalize_name
 from fp.modes.base import BaseGameMode, BattleConfiguration
-from teams.team_converter import json_to_packed
 
 logger = logging.getLogger(__name__)
-
-# ---------------------------------------------------------------------------
-# Genesect dummy team (3 for singles)
-# ---------------------------------------------------------------------------
-
-def _genesect_entry() -> Dict[str, Any]:
-    return {
-        "name": "Genesect",
-        "species": "genesect",
-        "level": 100,
-        "tera_type": "steel",
-        "gender": "",
-        "item": "",
-        "ability": "download",
-        "moves": ["uturn"],
-        "shiny": "",
-        "nature": "serious",
-        "ivs": {"hp": "31", "atk": "31", "def": "31", "spa": "31", "spd": "31", "spe": "31"},
-        "evs": {"hp": "0", "atk": "252", "def": "4", "spa": "0", "spd": "0", "spe": "252"},
-        "happiness": 255,
-    }
-
-
-FACTORY_GENESECT_DICT = [_genesect_entry() for _ in range(3)]
-FACTORY_GENESECT_PACKED = json_to_packed(FACTORY_GENESECT_DICT)
 
 
 # ---------------------------------------------------------------------------
@@ -292,8 +266,8 @@ class BattleFactoryMode(BaseGameMode):
 
         return BattleConfiguration(
             pokemon_format="gen9battlefactory",
-            team_dict=FACTORY_GENESECT_DICT,
-            team_packed=FACTORY_GENESECT_PACKED,
+            team_dict=None,
+            team_packed=None,
             setup_commands=setup_cmds,
             extra_info={
                 "player_id": run.player_id,
@@ -520,8 +494,8 @@ class BattleFactoryMode(BaseGameMode):
             opp_packed_final = _team_from_entries(run.opponent_team)
             config = BattleConfiguration(
                 pokemon_format="gen9battlefactory",
-                team_dict=FACTORY_GENESECT_DICT,
-                team_packed=FACTORY_GENESECT_PACKED,
+                team_dict=None,
+                team_packed=None,
                 setup_commands=[
                     "/factoryteam {}, {}".format(player_display, player_packed),
                     "/factoryteam bot, {}".format(opp_packed_final),
@@ -741,8 +715,8 @@ class BattleFactoryMode(BaseGameMode):
         opp_packed_final = _team_from_entries(run.opponent_team)
         config = BattleConfiguration(
             pokemon_format="gen9battlefactory",
-            team_dict=FACTORY_GENESECT_DICT,
-            team_packed=FACTORY_GENESECT_PACKED,
+            team_dict=None,
+            team_packed=None,
             setup_commands=[
                 "/factoryteam {}, {}".format(player_display, player_packed),
                 "/factoryteam bot, {}".format(opp_packed_final),

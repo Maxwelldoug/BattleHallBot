@@ -102,9 +102,11 @@ class ChallengeDispatcher:
             for cmd in battle_config.setup_commands:
                 await self.ps_websocket_client.send_message("", [cmd])
 
-            # 2. Update active team for the bot
+            # 2. Update active team for the bot (clear team with 'null' if none provided)
             if battle_config.team_packed:
                 await self.ps_websocket_client.update_team(battle_config.team_packed)
+            else:
+                await self.ps_websocket_client.update_team("null")
 
             # 3. Issue the challenge command
             challenge_cmd = "/challenge {},{}".format(

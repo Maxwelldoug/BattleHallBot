@@ -119,6 +119,29 @@ class TestChallengeDispatcher(unittest.IsolatedAsyncioTestCase):
         # Cleanup timeout task
         self.manager.remove_from_wait_queue("queued_user")
 
+    async def test_challenge_dispatch_clears_team_when_no_team_packed(self):
+        config = BattleConfiguration(
+            pokemon_format="gen9battlefactory",
+            team_packed=None,
+            setup_commands=["/factoryteam Max, PACKED_P1", "/factoryteam bot, PACKED_OPP"],
+            extra_info={},
+        )
+
+        success = await self.dispatcher.dispatch_challenge(
+            player_userid="max",
+            player_display="Max",
+            mode=self.mode,
+            battle_config=config,
+            room_context="lobby",
+            session_data={},
+        )
+        self.assertTrue(success)
+
+        # Should send "null" to clear team since team_packed is None
+        self.assertIn("null", self.ws_client.team_updates)
+        sent_commands = [msg for room, msgs in self.ws_client.sent_messages for msg in msgs]
+        self.assertIn("/challenge Max,gen9battlefactory", sent_commands)
+
 
 if __name__ == "__main__":
     unittest.main()

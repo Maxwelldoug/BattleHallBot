@@ -537,6 +537,10 @@ class TestBattleFactoryMode(unittest.IsolatedAsyncioTestCase):
             species = run.opponent_team[0][1] or run.opponent_team[0][0]
             self.assertEqual(species, "Magnezone")
             cd.dispatch_challenge.assert_called_once()
+            call_config = cd.dispatch_challenge.call_args.kwargs["battle_config"]
+            self.assertIsNone(call_config.team_packed)
+            self.assertIsNone(call_config.team_dict)
+            self.assertEqual(call_config.pokemon_format, "gen9battlefactory")
 
     async def test_factory_concurrent_generation_serialized(self):
         """_generate_team should serialize concurrent requests with _generate_lock."""
