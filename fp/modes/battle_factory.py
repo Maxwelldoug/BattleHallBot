@@ -130,6 +130,17 @@ def _team_from_entries(entries: List[List[str]]) -> str:
     return "]".join(_parts_to_packed_entry(p) for p in entries)
 
 
+def _format_mon_summary(parts: List[str]) -> Tuple[str, str]:
+    """Extract (species, item) from Showdown packed set parts."""
+    if not parts:
+        return "???", "No Item"
+    species = parts[1].strip() if (len(parts) > 1 and parts[1].strip()) else parts[0].strip()
+    if not species:
+        species = "???"
+    item = parts[2].strip() if (len(parts) > 2 and parts[2].strip()) else "No Item"
+    return species, item
+
+
 # ---------------------------------------------------------------------------
 # In-memory run state
 # ---------------------------------------------------------------------------
@@ -155,8 +166,7 @@ class _FactoryRun:
 
     def describe_set(self, idx_1based: int, parts: List[str]) -> str:
         """Return a human-readable description of a set."""
-        species = parts[1] if len(parts) > 1 and parts[1] else (parts[0] if parts else "???")
-        item = parts[2] if len(parts) > 2 and parts[2] else "No Item"
+        species, item = _format_mon_summary(parts)
         nature = parts[5] if len(parts) > 5 and parts[5] else "?"
         moves_raw = parts[4] if len(parts) > 4 else ""
         moves = [m.strip() for m in moves_raw.split(",") if m.strip()]
@@ -568,7 +578,7 @@ class BattleFactoryMode(BaseGameMode):
             upgraded = _apply_iv_upgrade(opp_parts, my_parts)
             run.player_team[my_idx - 1] = upgraded
 
-            species = opp_parts[1] if len(opp_parts) > 1 else "???"
+            species, _ = _format_mon_summary(opp_parts)
             await self.send_reply(
                 room_context,
                 player_display,
@@ -643,8 +653,7 @@ class BattleFactoryMode(BaseGameMode):
 
         # Return each Pokémon as a message before prompting the user to draft
         for i, parts in enumerate(run.draft_pool, start=1):
-            species = parts[1] if len(parts) > 1 and parts[1] else (parts[0] if parts else "???")
-            item = parts[2] if len(parts) > 2 and parts[2] else "No Item"
+            species, item = _format_mon_summary(parts)
             nature = parts[5] if len(parts) > 5 and parts[5] else "?"
             moves_raw = parts[4] if len(parts) > 4 else ""
             moves = [m.strip() for m in moves_raw.split(",") if m.strip()]
@@ -666,16 +675,14 @@ class BattleFactoryMode(BaseGameMode):
         )
         await self.challenge_dispatcher.send_reply("", player_display, "**Opponent's Pokémon:**")
         for i, parts in enumerate(run.opponent_team, start=1):
-            species = parts[1] if len(parts) > 1 else "???"
-            item = parts[2] if len(parts) > 2 else "No Item"
+            species, item = _format_mon_summary(parts)
             await self.challenge_dispatcher.send_reply(
                 "", player_display, "  {}. {}  @ {}".format(i, species, item)
             )
 
         await self.challenge_dispatcher.send_reply("", player_display, "**Your current team:**")
         for i, parts in enumerate(run.player_team, start=1):
-            species = parts[1] if len(parts) > 1 else "???"
-            item = parts[2] if len(parts) > 2 else "No Item"
+            species, item = _format_mon_summary(parts)
             await self.challenge_dispatcher.send_reply(
                 "", player_display, "  {}. {}  @ {}".format(i, species, item)
             )

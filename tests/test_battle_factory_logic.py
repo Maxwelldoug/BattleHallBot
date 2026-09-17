@@ -18,7 +18,7 @@ from fp.search.random_battles import (
 from data.pkmn_sets import RandomBattleTeamDatasets, TeamDatasets
 
 
-class TestBattleFactoryBattleLogic(unittest.TestCase):
+class TestBattleFactoryBattleLogic(unittest.IsolatedAsyncioTestCase):
     def test_team_size_property(self):
         """Battle.team_size should reflect the correct max size for each facility."""
         b_factory = Battle("test-factory")
@@ -153,6 +153,53 @@ class TestBattleFactoryBattleLogic(unittest.TestCase):
         sets_probo = get_all_remaining_sets_for_revealed_pkmn(battle)
         self.assertIn("probopass", sets_probo)
         self.assertGreater(len(sets_probo["probopass"]), 0)
+
+    def test_format_mon_summary_unnamed_species(self):
+        """When Showdown packs a set with no nickname, species is in field 0 and field 1 is empty."""
+        from fp.modes.battle_factory import _format_mon_summary
+        parts = ["Flygon", "", "PomegBerry", "Levitate", "earthquake,scaleshot", "Jolly", "0,252,4,0,0,252"]
+        species, item = _format_mon_summary(parts)
+        self.assertEqual(species, "Flygon")
+        self.assertEqual(item, "PomegBerry")
+
+    def test_format_mon_summary_with_nickname(self):
+        """When a Pokémon has a nickname, species is in field 1."""
+        from fp.modes.battle_factory import _format_mon_summary
+        parts = ["Dragon", "Flygon", "PasshoBerry", "Levitate", "earthquake,scaleshot", "Jolly", "0,252,4,0,0,252"]
+        species, item = _format_mon_summary(parts)
+        self.assertEqual(species, "Flygon")
+        self.assertEqual(item, "PasshoBerry")
+
+    async def test_present_swap_offer_includes_species(self):
+        """_present_swap_offer should format each mon with its species name and item."""
+        from fp.modes.battle_factory import BattleFactoryMode, _FactoryRun
+        from unittest.mock import AsyncMock, MagicMock
+
+        mock_cd = MagicMock()
+        mock_cd.send_reply = AsyncMock()
+        mode = BattleFactoryMode(mock_cd)
+
+        run = _FactoryRun(1, "TestUser", "testroom")
+        run.opponent_team = [
+            ["Flygon", "", "PomegBerry", "Levitate"],
+            ["Giratina", "", "GriseousCore", "Pressure"],
+            ["Slowbro", "", "PasshoBerry", "Regenerator"],
+        ]
+        run.player_team = [
+            ["Sandslash", "", "IceStone", "SnowCloak"],
+            ["Ceruledge", "", "MaliciousArmor", "FlashFire"],
+            ["Cloyster", "", "KingsRock", "SkillLink"],
+        ]
+
+        await mode._present_swap_offer(run, "TestUser", "testroom")
+
+        messages = [call.args[2] for call in mock_cd.send_reply.call_args_list]
+        self.assertTrue(any("1. Flygon  @ PomegBerry" in m for m in messages))
+        self.assertTrue(any("2. Giratina  @ GriseousCore" in m for m in messages))
+        self.assertTrue(any("3. Slowbro  @ PasshoBerry" in m for m in messages))
+        self.assertTrue(any("1. Sandslash  @ IceStone" in m for m in messages))
+        self.assertTrue(any("2. Ceruledge  @ MaliciousArmor" in m for m in messages))
+        self.assertTrue(any("3. Cloyster  @ KingsRock" in m for m in messages))
 
 
 if __name__ == "__main__":
