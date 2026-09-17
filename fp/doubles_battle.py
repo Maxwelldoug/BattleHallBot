@@ -153,6 +153,27 @@ class DoublesHeuristicBattler:
         Returns:
             ["/choose <slot0_action>, <slot1_action>|<rqid>"]  — ready to send.
         """
+        # Check for forced switch turn (e.g. after active Pokémon fainted)
+        force_switch = request_json.get("forceSwitch", [])
+        if force_switch and any(force_switch):
+            side_pokemon = request_json.get("side", {}).get("pokemon", [])
+            available_switches = [
+                i + 1
+                for i, p in enumerate(side_pokemon)
+                if not p.get("active", False) and not p.get("condition", "").endswith("fnt")
+            ]
+            actions = []
+            for needed in force_switch:
+                if needed and available_switches:
+                    switch_idx = available_switches.pop(0)
+                    actions.append("switch {}".format(switch_idx))
+                else:
+                    actions.append("pass")
+            while len(actions) < 2:
+                actions.append("pass")
+            rqid_str = "|{}".format(rqid) if rqid is not None else ""
+            return ["/choose {}, {}{}".format(actions[0], actions[1], rqid_str)]
+
         active = request_json.get("active", [])
         side_pokemon = request_json.get("side", {}).get("pokemon", [])
 
@@ -166,15 +187,12 @@ class DoublesHeuristicBattler:
 
         # Pick action for each active slot
         actions = []
-        for slot_idx, active_data in enumerate(active[:2]):
-            if not active_data:
+        for slot_idx in range(2):
+            if slot_idx >= len(active) or not active[slot_idx] or not active[slot_idx].get("moves"):
                 actions.append("pass")
                 continue
 
-            # If we're forced to switch or must pass
-            if active_data.get("trapped") is False and active_data.get("maybeTrapped") is False:
-                pass  # normal case
-
+            active_data = active[slot_idx]
             action = self._best_action_for_slot(
                 slot_idx, active_data, opp_types, side_pokemon
             )
@@ -288,62 +306,85 @@ async def doubles_pokemon_battle(
 ):
     """
     Drives a doubles battle to completion using the heuristic battler.
+    Operates directly on Showdown messages without using the singles-only Battle class.
 
     Returns the winner username string (or None on tie).
     """
-    from fp.run_battle import battle_is_finished, start_standard_battle
     from data import all_move_json, pokedex
-    import constants
+    from config import FoulPlayConfig
+    from fp.helpers import normalize_name
 
     battler = DoublesHeuristicBattler(all_move_json, pokedex)
-    battle = None
-
-    # Opponent species tracker: [slot0_species, slot1_species]
     opp_species: List[Optional[str]] = [None, None]
+    bot_username = normalize_name(getattr(FoulPlayConfig, "username", ""))
+    bot_side: Optional[str] = None
+    opp_side: str = "p2"
 
-    try:
-        battle = await start_standard_battle(
-            ps_websocket_client,
-            pokemon_battle_type,
-            team_dict,
-            battle_tag=battle_tag,
-        )
+    logger.info("[{}] Doubles battle loop starting for {}".format(battle_tag, pokemon_battle_type))
 
-        while True:
-            msg = await ps_websocket_client.receive_message(room=battle.battle_tag)
+    while True:
+        msg = await ps_websocket_client.receive_message(room=battle_tag)
 
-            # Parse any species reveals from the message
-            _update_opp_species(msg, opp_species)
-
-            if battle_is_finished(battle.battle_tag, msg):
-                winner = (
-                    msg.split(constants.WIN_STRING)[-1].split("\n")[0].strip()
-                    if constants.WIN_STRING in msg
-                    else None
-                )
-                logger.info("[{}] Doubles winner: {}".format(battle.battle_tag, winner))
-                await ps_websocket_client.leave_battle(battle.battle_tag)
+        # 1. Check for battle finish
+        for line in msg.split("\n"):
+            if line.startswith("|win|"):
+                parts = line.split("|")
+                winner = parts[2].strip() if len(parts) >= 3 else None
+                logger.info("[{}] Doubles winner: {}".format(battle_tag, winner))
+                try:
+                    await ps_websocket_client.leave_battle(battle_tag)
+                except Exception:
+                    pass
                 return winner
+            if line.startswith("|tie|"):
+                logger.info("[{}] Doubles battle tied".format(battle_tag))
+                try:
+                    await ps_websocket_client.leave_battle(battle_tag)
+                except Exception:
+                    pass
+                return None
 
-            # Parse request JSON from the message
-            request_json = _extract_request_json(msg)
-            if request_json and not request_json.get("wait") and not request_json.get("teamPreview"):
-                rqid = request_json.get("rqid")
-                choice = battler.pick_move(request_json, opp_species, rqid=rqid)
-                await ps_websocket_client.send_message(battle.battle_tag, choice)
+        # 2. Identify player sides (p1 vs p2)
+        for line in msg.split("\n"):
+            if line.startswith("|player|"):
+                parts = line.split("|")
+                if len(parts) >= 4:
+                    side_id = parts[2].strip()
+                    p_name = normalize_name(parts[3].strip())
+                    if p_name == bot_username:
+                        bot_side = side_id
+                        opp_side = "p2" if bot_side == "p1" else "p1"
 
-    finally:
-        if battle is not None and getattr(battle, "file_log_handler", None) is not None:
-            import logging as _logging
-            _logging.getLogger().removeHandler(battle.file_log_handler)
+        # 3. Track opponent active species
+        _update_opp_species(msg, opp_species, opp_side=opp_side)
+
+        # 4. Process turn / request messages
+        request_json = _extract_request_json(msg)
+        if request_json:
+            if not bot_side and "side" in request_json and "id" in request_json["side"]:
+                bot_side = request_json["side"]["id"]
+                opp_side = "p2" if bot_side == "p1" else "p1"
+
+            if request_json.get("wait"):
+                continue
+
+            if request_json.get("teamPreview"):
+                rqid = request_json.get("rqid", 1)
+                await ps_websocket_client.send_message(battle_tag, ["/team 1234|{}".format(rqid)])
+                continue
+
+            rqid = request_json.get("rqid")
+            choice = battler.pick_move(request_json, opp_species, rqid=rqid)
+            logger.debug("[{}] Doubles choice: {}".format(battle_tag, choice))
+            await ps_websocket_client.send_message(battle_tag, choice)
 
 
 def _extract_request_json(msg: str) -> Optional[Dict]:
     """Extract and parse the first |request| JSON blob from a message."""
     for line in msg.split("\n"):
         if line.startswith("|request|"):
-            payload = line[len("|request|"):]
-            if not payload.strip():
+            payload = line[len("|request|"):].strip()
+            if not payload:
                 return None
             try:
                 return json.loads(payload)
@@ -353,34 +394,23 @@ def _extract_request_json(msg: str) -> Optional[Dict]:
     return None
 
 
-# Regex to capture species from |switch| or |drag| lines
-_SWITCH_RE = re.compile(r"^\|(?:switch|drag)\|p(\d+)a: [^|]+\|([^,|]+)")
-
-
-def _update_opp_species(msg: str, opp_species: List[Optional[str]]) -> None:
+def _update_opp_species(msg: str, opp_species: List[Optional[str]], opp_side: str = "p2") -> None:
     """
     Parse switch/drag lines to record the opponent's active Pokémon species.
-
     Showdown sends:  |switch|p2a: nickname|Species, Lv50|hp/maxhp
-    We track p2a (slot 1) and p2b (slot 2) by scanning for the player slot.
     """
     for line in msg.split("\n"):
-        # Check for opponent switch lines (p2a or p2b)
-        if "|switch|p2" in line or "|drag|p2" in line:
-            # Extract sub-slot letter (a or b) and species
-            # Pattern: |switch|p2a: Nickname|Charizard, Lv50|...
+        if "|switch|{}".format(opp_side) in line or "|drag|{}".format(opp_side) in line:
             parts = line.split("|")
-            if len(parts) < 5:
-                continue
-            slot_field = parts[2]  # e.g. "p2a: Nickname"
-            species_field = parts[3]  # e.g. "Charizard, Lv50"
-            species_raw = species_field.split(",")[0].strip().lower().replace(" ", "").replace("-", "")
-            if "a:" in slot_field:
-                opp_species[0] = species_raw
-            elif "b:" in slot_field:
-                opp_species[1] = species_raw
-        # Track fainting
-        if "|faint|p2" in line:
+            if len(parts) >= 4:
+                slot_field = parts[2]  # e.g. "p2a: Burpie"
+                species_field = parts[3]  # e.g. "Greninja, L50, F"
+                species_raw = species_field.split(",")[0].strip().lower().replace(" ", "").replace("-", "")
+                if "a:" in slot_field:
+                    opp_species[0] = species_raw
+                elif "b:" in slot_field:
+                    opp_species[1] = species_raw
+        if "|faint|{}".format(opp_side) in line:
             parts = line.split("|")
             if len(parts) >= 3:
                 slot_field = parts[2]

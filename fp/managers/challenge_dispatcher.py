@@ -42,7 +42,7 @@ class ChallengeDispatcher:
             await self.send_reply(
                 room_context,
                 player_display,
-                "You already have an active challenge or battle in progress. Use @battlehall cancel to cancel it.",
+                "You already have an active challenge or battle in progress. Use @cancel to cancel it.",
             )
             return False
 

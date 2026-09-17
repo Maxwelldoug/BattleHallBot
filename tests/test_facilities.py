@@ -509,6 +509,80 @@ class TestCommandDispatcherFactoryInterception(unittest.IsolatedAsyncioTestCase)
         await cd.handle_incoming_text("bot", packed, "testroom")
         mock_factory_mode.notify_factory_generate_reply.assert_called_once_with(packed.strip())
 
+    async def test_factory_reply_routes_with_text_prefix_and_server_sender(self):
+        """Showdown sends /text <packed> from server '~' or bot account via PM. It must be intercepted."""
+        from config import FoulPlayConfig
+        FoulPlayConfig.username = "EvilWoodenPlank"
+        cd = self._make_dispatcher()
+
+        mock_factory = MagicMock()
+        mock_factory.mode_id = "battlefactory"
+        mock_factory.notify_factory_generate_reply = MagicMock()
+        cd.modes_by_id["battlefactory"] = mock_factory
+
+        raw_pm = "/text Tauros||SpellTag|SheerForce|shadowball,trailblaze,takedown,flamethrower|Naive|6,252,,,,252|M|||50|]Clefable||MoonStone|CuteCharm|raindance,thunderbolt,dig,waterpulse|Quirky|252,,6,252,,|M|||50|"
+        expected = "Tauros||SpellTag|SheerForce|shadowball,trailblaze,takedown,flamethrower|Naive|6,252,,,,252|M|||50|]Clefable||MoonStone|CuteCharm|raindance,thunderbolt,dig,waterpulse|Quirky|252,,6,252,,|M|||50|"
+
+        # Test from server '~'
+        await cd.handle_incoming_text("~", raw_pm, "")
+        mock_factory.notify_factory_generate_reply.assert_called_once_with(expected)
+
+        # Test from bot '%EvilWoodenPlank'
+        mock_factory.notify_factory_generate_reply.reset_mock()
+        await cd.handle_incoming_text("%EvilWoodenPlank", raw_pm, "")
+        mock_factory.notify_factory_generate_reply.assert_called_once_with(expected)
+
+    def test_pick_move_user_turn1_exact_scenario(self):
+        """Verify the exact turn 1 doubles scenario reported by the user."""
+        from fp.doubles_battle import DoublesHeuristicBattler
+        from data import all_move_json, pokedex
+        battler = DoublesHeuristicBattler(all_move_json, pokedex)
+        req = {
+            "active": [
+                {
+                    "moves": [
+                        {"move": "U-turn", "id": "uturn", "pp": 32, "maxpp": 32, "target": "normal", "disabled": False},
+                        {"move": "Double-Edge", "id": "doubleedge", "pp": 24, "maxpp": 24, "target": "normal", "disabled": False},
+                        {"move": "Light Screen", "id": "lightscreen", "pp": 48, "maxpp": 48, "target": "allySide", "disabled": False},
+                        {"move": "Dazzling Gleam", "id": "dazzlinggleam", "pp": 16, "maxpp": 16, "target": "allAdjacentFoes", "disabled": False}
+                    ]
+                },
+                {
+                    "moves": [
+                        {"move": "Disarming Voice", "id": "disarmingvoice", "pp": 24, "maxpp": 24, "target": "allAdjacentFoes", "disabled": False},
+                        {"move": "Snowscape", "id": "snowscape", "pp": 16, "maxpp": 16, "target": "all", "disabled": False},
+                        {"move": "Zen Headbutt", "id": "zenheadbutt", "pp": 24, "maxpp": 24, "target": "normal", "disabled": False},
+                        {"move": "Fling", "id": "fling", "pp": 16, "maxpp": 16, "target": "normal", "disabled": False}
+                    ]
+                }
+            ],
+            "side": {"pokemon": []},
+            "rqid": 2
+        }
+        opp_species = ["greninja", "farigiraf"]
+        choice = battler.pick_move(req, opp_species, rqid=2)
+        self.assertEqual(choice, ["/choose move 4 -1, move 1 -1|2"])
+
+    def test_pick_move_with_forced_switch(self):
+        """When forceSwitch is present, battler should choose available reserves."""
+        from fp.doubles_battle import DoublesHeuristicBattler
+        from data import all_move_json, pokedex
+        battler = DoublesHeuristicBattler(all_move_json, pokedex)
+        req = {
+            "forceSwitch": [True, False],
+            "side": {
+                "pokemon": [
+                    {"ident": "p1: Mon1", "condition": "0 fnt", "active": True},
+                    {"ident": "p1: Mon2", "condition": "100/100", "active": True},
+                    {"ident": "p1: Mon3", "condition": "100/100", "active": False},
+                    {"ident": "p1: Mon4", "condition": "100/100", "active": False},
+                ]
+            },
+            "rqid": 5
+        }
+        choice = battler.pick_move(req, [None, "farigiraf"], rqid=5)
+        self.assertEqual(choice, ["/choose switch 3, pass|5"])
+
 
 if __name__ == "__main__":
     unittest.main()

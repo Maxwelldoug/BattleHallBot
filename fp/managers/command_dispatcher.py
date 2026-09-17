@@ -48,13 +48,17 @@ class CommandDispatcher:
         bot_userid = normalize_name(getattr(FoulPlayConfig, "username", ""))
 
         # Intercept /generatefactoryteam replies:
-        # The server echoes the packed team back as a chat message from the bot account.
+        # The server echoes the packed team back as a chat message or PM (often prefixed with /text ).
         # A packed team looks like "Name||item|ability|moves|..." (contains multiple | chars)
-        # with ']' as set separators.  Identify by: sender is bot AND text looks like packed.
-        if sender_userid == bot_userid and "|" in text and self._looks_like_packed_team(text):
+        # with ']' as set separators.
+        candidate = text.strip()
+        if candidate.startswith("/text "):
+            candidate = candidate[6:].strip()
+
+        if (sender_userid == bot_userid or sender_userid in ("", "~", "server")) and self._looks_like_packed_team(candidate):
             factory_mode = self.modes_by_id.get("battlefactory")
             if factory_mode and hasattr(factory_mode, "notify_factory_generate_reply"):
-                factory_mode.notify_factory_generate_reply(text.strip())
+                factory_mode.notify_factory_generate_reply(candidate)
             return
 
         if sender_userid == bot_userid:
@@ -207,6 +211,8 @@ class CommandDispatcher:
         A valid packed team has at least one '|' pipe and at least one ']'.
         """
         stripped = text.strip()
+        if stripped.startswith("/text "):
+            stripped = stripped[6:].strip()
         return "|" in stripped and "]" in stripped and not stripped.startswith("/")
 
     def start_listeners(self, lobby_room: str):

@@ -381,6 +381,13 @@ class ActiveBattleManager:
                     battle_tag=battle_tag,
                 )
 
+            # The battle is now finished. Unregister the battle from active tracking BEFORE
+            # calling on_battle_end, so auto-rematches/next challenges won't be blocked by
+            # has_active_battle_or_challenge check!
+            async with self.state_lock:
+                self.battles_by_room.pop(battle_tag.lower(), None)
+                self.battles_by_player.pop(instance.player_userid, None)
+
             # Mode lifecycle end hook
             await instance.mode.on_battle_end(
                 battle_tag, instance.session_data, winner
