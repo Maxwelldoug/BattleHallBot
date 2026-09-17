@@ -30,6 +30,7 @@ In-memory only — runs do NOT survive a bot restart.
 import asyncio
 import logging
 import re
+import time
 from copy import deepcopy
 from typing import List, Optional, Dict, Any, Tuple
 
@@ -204,6 +205,8 @@ class BattleFactoryMode(BaseGameMode):
         # Pending bot chat messages for /generatefactoryteam replies
         # We receive the reply from the server in the room chat.
         # Map player_userid → asyncio.Future[str]
+        self._generate_lock = asyncio.Lock()
+        self._current_generate_future: Optional[asyncio.Future] = None
         self._pending_generate: Dict[str, asyncio.Future] = {}
 
     # ------------------------------------------------------------------
@@ -484,11 +487,6 @@ class BattleFactoryMode(BaseGameMode):
                     "Error generating opponent team. Please try again.",
                 )
                 return
-            run.opponent_team = [
-                s.split("|") for s in _parse_packed_team(opp_packed)
-                if s  # non-empty sets; each item from _parse_packed_team already parted
-            ]
-            # _parse_packed_team returns dicts — we need raw parts
             raw_opp = []
             for mon_str in opp_packed.strip().split("]"):
                 mon_str = mon_str.strip()
@@ -775,40 +773,43 @@ class BattleFactoryMode(BaseGameMode):
     async def _generate_team(
         self, count: int, room_context: str, player_display: str
     ) -> Optional[str]:
-        """
-        Send /generatefactoryteam <count> to the server and wait for the
+        """Send /generatefactoryteam <count> to the server and wait for the
         server's reply (which contains the packed team string).
 
-        The server sends a chat reply to the room: the packed team is the
-        entire chat message text after stripping the bot's username prefix.
-
-        We register a Future keyed by a temporary ID, send the command,
-        and wait for the CommandDispatcher to deliver the reply via
-        `notify_factory_generate_reply`.
+        Because the server reply does not include a request ID or recipient,
+        we serialize generation with an asyncio.Lock to avoid race conditions,
+        cross-talk, or team mixing when multiple players start or draft concurrently.
         """
-        key = "_gen_{}_{}".format(count, id(self))
-        fut: asyncio.Future = asyncio.get_event_loop().create_future()
-        self._pending_generate[key] = fut
+        async with self._generate_lock:
+            loop = asyncio.get_event_loop()
+            fut: asyncio.Future = loop.create_future()
+            self._current_generate_future = fut
+            key = "_gen_{}_{}_{}".format(count, id(self), time.time())
+            self._pending_generate[key] = fut
 
-        try:
-            await self.challenge_dispatcher.ps_websocket_client.send_message(
-                "", ["/generatefactoryteam {}".format(count)]
-            )
-            # Wait up to 15 seconds for the server's reply
-            packed = await asyncio.wait_for(fut, timeout=15.0)
-            return packed
-        except asyncio.TimeoutError:
-            logger.warning("Timed out waiting for /generatefactoryteam reply")
-            return None
-        finally:
-            self._pending_generate.pop(key, None)
+            try:
+                await self.challenge_dispatcher.ps_websocket_client.send_message(
+                    "", ["/generatefactoryteam {}".format(count)]
+                )
+                # Wait up to 15 seconds for the server's reply
+                packed = await asyncio.wait_for(fut, timeout=15.0)
+                return packed
+            except asyncio.TimeoutError:
+                logger.warning("Timed out waiting for /generatefactoryteam reply")
+                return None
+            finally:
+                self._pending_generate.pop(key, None)
+                if self._current_generate_future is fut:
+                    self._current_generate_future = None
 
     def notify_factory_generate_reply(self, packed_team: str):
-        """
-        Called by CommandDispatcher when it intercepts a packed-team reply
+        """Called by CommandDispatcher when it intercepts a packed-team reply
+
         from the server (the response to /generatefactoryteam).
-        Resolves the oldest pending Future.
+        Resolves the active Future.
         """
+        if self._current_generate_future and not self._current_generate_future.done():
+            self._current_generate_future.set_result(packed_team)
         for key, fut in list(self._pending_generate.items()):
             if not fut.done():
                 fut.set_result(packed_team)

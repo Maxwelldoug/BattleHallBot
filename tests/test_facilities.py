@@ -498,6 +498,70 @@ class TestBattleFactoryMode(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(fut.done())
         self.assertIn("Bulbasaur", fut.result())
 
+    async def test_factory_draft_sets_opponent_team_without_split_error(self):
+        """@factory draft should parse opp_packed without 'dict object has no attribute split'."""
+        import db
+        mode, cd = self._make_mode()
+        db.get_or_create_player("draftsplituser", "DraftSplitUser")
+
+        # Create active run in draft phase
+        sample_draft_pool = [
+            ["P1", "Tauros", "SpellTag", "SheerForce", "shadowball", "Naive", "6,252,,,,252", "M", "", "", "50", ""],
+            ["P2", "Clefable", "MoonStone", "CuteCharm", "waterpulse", "Quirky", "252,,6,252,,", "M", "", "", "50", ""],
+            ["P3", "Feraligatr", "RareBone", "Torrent", "earthquake", "Bashful", "6,252,,,,252", "F", "", "", "50", ""],
+            ["P4", "Raichu", "MysticWater", "Static", "grassknot", "Bashful", "6,252,,,,252", "M", "", "", "50", ""],
+            ["P5", "Rotom", "PechaBerry", "Levitate", "thunder", "Hasty", "6,,,252,,252", "N", "", "", "50", ""],
+            ["P6", "Noctowl", "WeaknessPolicy", "TintedLens", "tackle", "Timid", "252,,,252,6,", "M", "", "", "50", ""],
+        ]
+        from fp.modes.battle_factory import _FactoryRun
+        run = _FactoryRun(
+            player_id=1,
+            player_display="DraftSplitUser",
+            lobby_room="testroom",
+        )
+        run.draft_pool = sample_draft_pool
+        run.phase = "draft"
+        mode._runs["draftsplituser"] = run
+
+        opp_packed = (
+            "Magnezone||LeppaBerry|MagnetPull|tackle,discharge,spark,zapcannon|Modest|252,,6,252,,|N|||50|]"
+            "Rampardos||SharpBeak|MoldBreaker|rocktomb,thief,thrash,trailblaze|Hasty|252,252,6,,,|M|||50|]"
+            "Forretress||WideLens|Sturdy|steelbeam,swift,bugbuzz,counter|Careful|252,252,6,,,|F|||50|"
+        )
+        with patch.object(mode, "_generate_team", new=AsyncMock(return_value=opp_packed)):
+            await mode.handle_command("draftsplituser", "DraftSplitUser", "@factory", ["draft", "1", "2", "3"], "testroom")
+            self.assertEqual(run.phase, "in_battle")
+            self.assertEqual(len(run.opponent_team), 3)
+            # Ensure each item in run.opponent_team is a list of parts, not a dict
+            self.assertIsInstance(run.opponent_team[0], list)
+            species = run.opponent_team[0][1] or run.opponent_team[0][0]
+            self.assertEqual(species, "Magnezone")
+            cd.dispatch_challenge.assert_called_once()
+
+    async def test_factory_concurrent_generation_serialized(self):
+        """_generate_team should serialize concurrent requests with _generate_lock."""
+        mode, cd = self._make_mode()
+        events = []
+
+        async def fake_send_message(room, msgs):
+            cmd = msgs[0]
+            events.append(f"send:{cmd}")
+            await asyncio.sleep(0.01)
+            if " 6" in cmd:
+                mode.notify_factory_generate_reply("team6")
+            elif " 3" in cmd:
+                mode.notify_factory_generate_reply("team3")
+
+        cd.ps_websocket_client.send_message = AsyncMock(side_effect=fake_send_message)
+
+        t1 = asyncio.create_task(mode._generate_team(6, "room", "User1"))
+        t2 = asyncio.create_task(mode._generate_team(3, "room", "User2"))
+
+        res1, res2 = await asyncio.gather(t1, t2)
+        self.assertEqual(res1, "team6")
+        self.assertEqual(res2, "team3")
+        self.assertEqual(events, ["send:/generatefactoryteam 6", "send:/generatefactoryteam 3"])
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # CommandDispatcher packed-team detection test
