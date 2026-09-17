@@ -222,12 +222,26 @@ class DoublesHeuristicBattler:
         """Pick the best move string for a single active slot."""
         moves_info = active_data.get("moves", [])
         if not moves_info:
-            return "move 1 1"
+            return "move 1"
+
+        def _get_target_type(m_data: Dict) -> Optional[str]:
+            """Return the target string for a move.
+
+            In Pokémon Showdown, locked/charging moves (e.g. Turn 2 of Dig/Fly/Dive, Outrage)
+            do not have a 'target' property in the request JSON. Showdown will reject any
+            target parameter for these moves ('You can't choose a target for <Move>').
+            For test mock requests that omit 'target', fallback to dex only if not locked.
+            """
+            if "target" in m_data:
+                return m_data["target"]
+            if active_data.get("trapped") or "pp" not in m_data:
+                return None
+            return self.moves.get(m_data.get("id", ""), {}).get("target", "normal")
 
         # Gather usable moves with their scores against each opponent
         # Score per move per target: (move_index_1based, target_slot, score)
         best_score = -1.0
-        best_action = "move 1 1"
+        best_action = "move 1"
 
         # In Pokémon Showdown, foe targets are positive (1, 2) and ally targets are negative (-1, -2).
         live_opp_slots = [
@@ -247,7 +261,7 @@ class DoublesHeuristicBattler:
             move_entry = self.moves.get(move_id, {})
             base_power = move_entry.get("basePower", 0)
             move_type = move_entry.get("type", "normal").lower()
-            target = move_entry.get("target", "normal")
+            target = _get_target_type(move_data)
 
             # Skip non-damaging moves entirely for scoring
             if base_power <= 0:
@@ -293,7 +307,7 @@ class DoublesHeuristicBattler:
         # If no damaging move found (all status), fall back to first move
         if best_score < 0:
             first_move = moves_info[0] if moves_info else {}
-            first_target = first_move.get("target") or self.moves.get(first_move.get("id", ""), {}).get("target", "normal")
+            first_target = _get_target_type(first_move)
             if first_target in _CHOOSABLE_TARGETS:
                 best_action = "move 1 {}".format(live_opp_slots[0])
             else:

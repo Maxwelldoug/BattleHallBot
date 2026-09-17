@@ -618,6 +618,32 @@ class TestCommandDispatcherFactoryInterception(unittest.IsolatedAsyncioTestCase)
         choice = battler.pick_move(req, [None, "farigiraf"], rqid=5)
         self.assertEqual(choice, ["/choose switch 3, pass|5"])
 
+    def test_pick_move_dig_turn2_locked_omits_target(self):
+        """Turn 2 of Dig is a locked move with no target field and trapped=True; must emit move 1 without target."""
+        from fp.doubles_battle import DoublesHeuristicBattler
+        from data import all_move_json, pokedex
+        battler = DoublesHeuristicBattler(all_move_json, pokedex)
+        req = {
+            "active": [
+                {
+                    "moves": [{"move": "Dig", "id": "dig"}],
+                    "trapped": True,
+                },
+                {
+                    "moves": [
+                        {"move": "Tackle", "id": "tackle", "pp": 35, "maxpp": 35, "target": "normal", "disabled": False},
+                    ]
+                }
+            ],
+            "side": {"pokemon": []},
+            "rqid": 6
+        }
+        opp_species = ["pikachu", "raichu"]
+        choice = battler.pick_move(req, opp_species, rqid=6)
+        # Slot 0 (Dig turn 2) must be "move 1" without target!
+        # Slot 1 (Tackle) should be "move 1 1" with target!
+        self.assertEqual(choice, ["/choose move 1, move 1 1|6"])
+
 
 if __name__ == "__main__":
     unittest.main()
