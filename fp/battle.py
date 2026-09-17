@@ -88,6 +88,26 @@ class Battle:
         self.request_json = None
         self.msg_list = []
 
+    @property
+    def team_size(self) -> int:
+        fmt = (getattr(self, "pokemon_format", None) or "").lower()
+        if "battlehall" in fmt:
+            return 1
+        if "battlefactory" in fmt:
+            return 3
+        if "battletower" in fmt:
+            if "doubles" in fmt:
+                return 4
+            return 3
+        user = getattr(self, "user", None)
+        if user:
+            user_size = len(getattr(user, "reserve", [])) + (
+                1 if getattr(user, "active", None) else 0
+            )
+            if user_size > 0:
+                return user_size
+        return 6
+
     def initialize_team_preview(self, opponent_pokemon, battle_type):
         self.user.reserve.insert(0, self.user.active)
         self.user.active = None

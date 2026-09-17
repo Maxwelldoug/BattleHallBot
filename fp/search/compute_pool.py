@@ -78,8 +78,22 @@ class MCTSComputePool:
     def _fallback_move(self, battle: Battle) -> str:
         if getattr(battle, "team_preview", False):
             return "teampreview 1"
-        if getattr(battle, "user", None) and getattr(battle.user, "active", None):
-            moves = getattr(battle.user.active, "moves", [])
+        is_force_switch = getattr(battle, "force_switch", False)
+        active = getattr(battle.user, "active", None) if getattr(battle, "user", None) else None
+        active_fainted = (active is None) or (not active.is_alive()) or getattr(active, "fainted", False)
+
+        if is_force_switch or active_fainted:
+            if getattr(battle, "user", None) and getattr(battle.user, "reserve", None):
+                for pkmn in battle.user.reserve:
+                    if pkmn.is_alive() and not getattr(pkmn, "fainted", False):
+                        return f"switch {pkmn.name}"
+
+        if active and active.is_alive() and not getattr(active, "fainted", False):
+            moves = getattr(active, "moves", [])
+            for move in moves:
+                if getattr(move, "current_pp", 1) > 0 and not getattr(move, "disabled", False):
+                    return move.name
             if moves:
                 return moves[0].name
+
         return "default"

@@ -485,12 +485,23 @@ class _TeamDatasets(PokemonSets):
     def _get_moves_dict(self):
         return get_pkmn_sets_file(self.pkmn_mode, "replay_moves.json")
 
-    def _get_battle_factory_sets_dict(self, tier_name):
-        return get_pkmn_sets_file(self.pkmn_mode, "factory-sets.json")[tier_name]
+    def _get_battle_factory_sets_dict(self, tier_name=None):
+        sets_data = get_pkmn_sets_file(self.pkmn_mode, "factory-sets.json")
+        if tier_name and tier_name in sets_data:
+            return sets_data[tier_name]
+        merged = {}
+        for tier, pkmns in sets_data.items():
+            if isinstance(pkmns, dict):
+                for pkmn, sets in pkmns.items():
+                    if pkmn not in merged:
+                        merged[pkmn] = {}
+                    merged[pkmn].update(sets)
+        return merged
 
-    def _load_battle_factory_team_datasets(self, pkmn_names: set[str], tier_name: str):
+    def _load_battle_factory_team_datasets(self, pkmn_names: set[str], tier_name: str = None):
         sets_dict = self._get_battle_factory_sets_dict(tier_name)
-        for pkmn in pkmn_names:
+        iter_list = sets_dict.keys() if (not pkmn_names or "battlefactory" in self.pkmn_mode) else pkmn_names
+        for pkmn in iter_list:
             try:
                 self.raw_pkmn_sets[pkmn] = sets_dict[pkmn]
             except KeyError:
@@ -553,7 +564,7 @@ class _TeamDatasets(PokemonSets):
                 "gen4",
             ]
         )
-        if battle_factory_tier_name:
+        if "battlefactory" in pkmn_mode or battle_factory_tier_name:
             self._load_battle_factory_team_datasets(
                 pkmn_names, battle_factory_tier_name
             )
@@ -562,6 +573,12 @@ class _TeamDatasets(PokemonSets):
         self._add_to_pkmn_sets(self.raw_pkmn_sets)
 
     def add_new_pokemon(self, pkmn_name: str):
+        if "battlefactory" in self.pkmn_mode:
+            sets_dict = self._get_battle_factory_sets_dict()
+            if pkmn_name in sets_dict:
+                self.raw_pkmn_sets[pkmn_name] = sets_dict[pkmn_name]
+                self._add_to_pkmn_sets({pkmn_name: sets_dict[pkmn_name]})
+                return
         sets_dict = self._get_sets_dict()
         all_pkmn_moves = self._get_moves_dict()
         if pkmn_name not in sets_dict:

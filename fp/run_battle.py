@@ -307,6 +307,8 @@ async def start_standard_battle(
             FoulPlayConfig.smogon_stats or pokemon_battle_type, unique_pkmn_names
         )
         TeamDatasets.initialize(pokemon_battle_type, unique_pkmn_names)
+        if battle.battle_type == BattleType.BATTLE_FACTORY:
+            RandomBattleTeamDatasets.initialize(battle.generation or "gen9")
 
         # apply the messages that were held onto
         process_battle_updates(battle)
@@ -349,6 +351,7 @@ async def start_standard_battle(
                 unique_pkmn_names,
                 battle_factory_tier_name=tier_name,
             )
+            RandomBattleTeamDatasets.initialize(battle.generation or "gen9")
         else:
             battle.battle_type = BattleType.STANDARD_BATTLE
             SmogonSets.initialize(

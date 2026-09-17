@@ -438,11 +438,14 @@ def populate_standardbattle_unrevealed_pkmn(battle: Battle):
         existing_pkmn.append(battle.opponent.active)
         num_revealed_pkmn += 1
 
-    if num_revealed_pkmn == 6:
+    target_team_size = getattr(battle, "team_size", 6)
+    if num_revealed_pkmn >= target_team_size:
         return
 
-    logger.info("Sampling {} unrevealed pokemon".format(6 - num_revealed_pkmn))
-    while num_revealed_pkmn < 6:
+    logger.info(
+        "Sampling {} unrevealed pokemon".format(target_team_size - num_revealed_pkmn)
+    )
+    while num_revealed_pkmn < target_team_size:
         pkmn = sample_standardbattle_pokemon(existing_pkmn)
         existing_pkmn.append(pkmn)
         battle.opponent.reserve.append(pkmn)

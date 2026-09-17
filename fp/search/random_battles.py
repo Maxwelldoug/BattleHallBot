@@ -32,6 +32,8 @@ def get_all_remaining_sets_for_revealed_pkmn(battle: Battle) -> dict:
     ret = {}
     for pkmn in revealed_pkmn:
         sets = datasets.get_all_remaining_sets(pkmn)
+        if not sets and battle.battle_type == BattleType.BATTLE_FACTORY:
+            sets = RandomBattleTeamDatasets.get_all_remaining_sets(pkmn)
         random.shuffle(sets)
         ret[pkmn.name] = sets
 
@@ -71,6 +73,8 @@ def prepare_random_battles(battle: Battle, num_battles: int) -> list[(Battle, fl
 
 
 def sample_randombattle_pokemon(existing_pokemon: list[Pokemon]) -> Pokemon:
+    if not RandomBattleTeamDatasets.pkmn_sets:
+        RandomBattleTeamDatasets.initialize("gen9")
     ok = False
     existing_pokemon_names = {pkmn.name for pkmn in existing_pokemon}
 
@@ -167,11 +171,14 @@ def populate_randombattle_unrevealed_pkmn(battle: Battle):
         existing_pkmn.append(battle.opponent.active)
         num_revealed_pkmn += 1
 
-    if num_revealed_pkmn == 6:
+    target_team_size = getattr(battle, "team_size", 6)
+    if num_revealed_pkmn >= target_team_size:
         return
 
-    logger.info("Sampling {} unrevealed pokemon".format(6 - num_revealed_pkmn))
-    while num_revealed_pkmn < 6:
+    logger.info(
+        "Sampling {} unrevealed pokemon".format(target_team_size - num_revealed_pkmn)
+    )
+    while num_revealed_pkmn < target_team_size:
         pkmn = sample_randombattle_pokemon(existing_pkmn)
         existing_pkmn.append(pkmn)
         battle.opponent.reserve.append(pkmn)
