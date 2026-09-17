@@ -115,6 +115,8 @@ _OPPONENT_TARGETS = {"normal", "any", "allAdjacentFoes", "allAdjacent"}
 _SPREAD_TARGETS = {"allAdjacentFoes", "allAdjacent"}
 # Self / ally targeting — skip these when selecting an attack
 _SELF_TARGETS = {"self", "adjacentAlly", "adjacentAllyOrSelf", "allyTeam", "allySide"}
+# Targets that accept/require a target location number (e.g. -1 or -2) in Showdown
+_CHOOSABLE_TARGETS = {"normal", "any", "adjacentAlly", "adjacentAllyOrSelf", "adjacentFoe"}
 
 
 class DoublesHeuristicBattler:
@@ -285,11 +287,19 @@ class DoublesHeuristicBattler:
 
             if score > best_score:
                 best_score = score
-                best_action = "move {} {}".format(mi, target_slot)
+                if target in _CHOOSABLE_TARGETS:
+                    best_action = "move {} {}".format(mi, target_slot)
+                else:
+                    best_action = "move {}".format(mi)
 
-        # If no damaging move found (all status), just use move 1 against slot -1
+        # If no damaging move found (all status), fall back to first move
         if best_score < 0:
-            best_action = "move 1 {}".format(live_opp_slots[0])
+            first_move = moves_info[0] if moves_info else {}
+            first_target = first_move.get("target") or self.moves.get(first_move.get("id", ""), {}).get("target", "normal")
+            if first_target in _CHOOSABLE_TARGETS:
+                best_action = "move 1 {}".format(live_opp_slots[0])
+            else:
+                best_action = "move 1"
 
         return best_action
 

@@ -93,12 +93,12 @@ class TestDoublesHeuristicBattler(unittest.TestCase):
         # Should use move 2 (scratch), not disabled move 1
         self.assertIn("move 2", result[0])
 
-    def test_spread_move_targets_neg1(self):
-        """Surf (spread) should use target -1 (canonical spread target)."""
+    def test_spread_move_omits_target(self):
+        """Surf (spread / allAdjacent) must NOT include a target number."""
         req = self._make_request(["surf"], ["surf"])
         result = self.battler.pick_move(req, ["charizard", "golem"], rqid=4)
         choice = result[0]
-        self.assertIn("move 1 -1", choice)
+        self.assertEqual(choice, "/choose move 1, move 1|4")
 
     def test_only_status_moves_falls_back(self):
         """If all moves are status (basePower=0), fallback to move 1."""
@@ -561,7 +561,7 @@ class TestCommandDispatcherFactoryInterception(unittest.IsolatedAsyncioTestCase)
         }
         opp_species = ["greninja", "farigiraf"]
         choice = battler.pick_move(req, opp_species, rqid=2)
-        self.assertEqual(choice, ["/choose move 4 -1, move 1 -1|2"])
+        self.assertEqual(choice, ["/choose move 4, move 1|2"])
 
     def test_pick_move_with_forced_switch(self):
         """When forceSwitch is present, battler should choose available reserves."""
