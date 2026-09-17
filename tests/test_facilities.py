@@ -63,18 +63,18 @@ class TestDoublesHeuristicBattler(unittest.TestCase):
         # opp slot 0 = bulbasaur (grass), slot 1 = squirtle (water)
         result = self.battler.pick_move(req, ["bulbasaur", "squirtle"], rqid=1)
         choice = result[0]
-        # Both slots should pick -1 (bulbasaur = opp slot 0 = target -1)
+        # Both slots should pick 1 (bulbasaur = opp slot 0 = target 1)
         # slot0 has flamethrower vs grass/poison bulbasaur — very effective
         # slot1 has flamethrower vs grass too
-        self.assertIn("-1", choice)
+        self.assertIn(" 1", choice)
 
     def test_pick_move_handles_fainted_opp(self):
         """With only one live opponent, both slots should target it."""
         req = self._make_request(["watergun"], ["watergun"])
         result = self.battler.pick_move(req, [None, "charizard"], rqid=2)
         choice = result[0]
-        # Only slot -2 (opp slot 1 = charizard) is live
-        self.assertIn("-2", choice)
+        # Only slot 2 (opp slot 1 = charizard) is live
+        self.assertIn(" 2", choice)
 
     def test_pick_move_disabled_move_skipped(self):
         """Disabled moves should not be selected."""
@@ -562,6 +562,41 @@ class TestCommandDispatcherFactoryInterception(unittest.IsolatedAsyncioTestCase)
         opp_species = ["greninja", "farigiraf"]
         choice = battler.pick_move(req, opp_species, rqid=2)
         self.assertEqual(choice, ["/choose move 4, move 1|2"])
+
+    def test_pick_move_cacnea_slowpoke_trailblaze_scenario(self):
+        """Cacnea (Trailblaze) + Slowpoke (Tackle) must target positive foe locations (1 or 2), never negative (ally)."""
+        from fp.doubles_battle import DoublesHeuristicBattler
+        from data import all_move_json, pokedex
+        battler = DoublesHeuristicBattler(all_move_json, pokedex)
+        req = {
+            "active": [
+                {
+                    "moves": [
+                        {"move": "Block", "id": "block", "pp": 8, "maxpp": 8, "target": "normal", "disabled": False},
+                        {"move": "Skitter Smack", "id": "skittersmack", "pp": 16, "maxpp": 16, "target": "normal", "disabled": False},
+                        {"move": "Destiny Bond", "id": "destinybond", "pp": 8, "maxpp": 8, "target": "self", "disabled": False},
+                        {"move": "Trailblaze", "id": "trailblaze", "pp": 32, "maxpp": 32, "target": "normal", "disabled": False},
+                    ]
+                },
+                {
+                    "moves": [
+                        {"move": "Slack Off", "id": "slackoff", "pp": 8, "maxpp": 8, "target": "self", "disabled": False},
+                        {"move": "Imprison", "id": "imprison", "pp": 16, "maxpp": 16, "target": "self", "disabled": False},
+                        {"move": "Tackle", "id": "tackle", "pp": 56, "maxpp": 56, "target": "normal", "disabled": False},
+                        {"move": "Calm Mind", "id": "calmmind", "pp": 32, "maxpp": 32, "target": "self", "disabled": False},
+                    ]
+                }
+            ],
+            "side": {"pokemon": []},
+            "rqid": 2
+        }
+        opp_species = ["pikachu", "raichu"]
+        choice = battler.pick_move(req, opp_species, rqid=2)
+        self.assertTrue(choice[0].startswith("/choose "))
+        self.assertNotIn("-1", choice[0])
+        self.assertNotIn("-2", choice[0])
+        self.assertIn("move", choice[0])
+        self.assertIn("|2", choice[0])
 
     def test_pick_move_with_forced_switch(self):
         """When forceSwitch is present, battler should choose available reserves."""

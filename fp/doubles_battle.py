@@ -222,19 +222,20 @@ class DoublesHeuristicBattler:
         """Pick the best move string for a single active slot."""
         moves_info = active_data.get("moves", [])
         if not moves_info:
-            return "move 1 -1"
+            return "move 1 1"
 
         # Gather usable moves with their scores against each opponent
         # Score per move per target: (move_index_1based, target_slot, score)
         best_score = -1.0
-        best_action = "move 1 -1"
+        best_action = "move 1 1"
 
+        # In Pokémon Showdown, foe targets are positive (1, 2) and ally targets are negative (-1, -2).
         live_opp_slots = [
-            -(i + 1) for i, t in enumerate(opp_types) if t is not None
+            i + 1 for i, t in enumerate(opp_types) if t is not None
         ]
         if not live_opp_slots:
             # No live opponents — shouldn't happen mid-battle but be safe
-            live_opp_slots = [-1]
+            live_opp_slots = [1]
 
         for mi, move_data in enumerate(moves_info, start=1):
             if move_data.get("disabled", False):
@@ -261,27 +262,24 @@ class DoublesHeuristicBattler:
             if is_spread:
                 # Spread move hits all live opponents simultaneously
                 total = sum(
-                    _move_score(base_power, move_type, opp_types[abs(s) - 1], is_spread=True)
+                    _move_score(base_power, move_type, opp_types[s - 1], is_spread=True)
                     for s in live_opp_slots
-                    if opp_types[abs(s) - 1] is not None
+                    if opp_types[s - 1] is not None
                 )
-                # Use -1 as canonical target for spread (server accepts this)
-                target_slot = -1
+                target_slot = live_opp_slots[0]
                 score = total
             else:
                 # Single-target: find best opponent
-                best_t = -1
+                best_t = live_opp_slots[0]
                 best_t_score = -1.0
                 for ts in live_opp_slots:
-                    ot = opp_types[abs(ts) - 1]
+                    ot = opp_types[ts - 1]
                     if ot is None:
                         continue
                     s = _move_score(base_power, move_type, ot)
                     if s > best_t_score:
                         best_t_score = s
                         best_t = ts
-                if best_t == -1:
-                    best_t = live_opp_slots[0]
                 target_slot = best_t
                 score = best_t_score
 
