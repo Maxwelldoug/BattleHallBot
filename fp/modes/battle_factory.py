@@ -34,6 +34,7 @@ import time
 from copy import deepcopy
 from typing import List, Optional, Dict, Any, Tuple
 
+from config import FoulPlayConfig
 import db
 from fp.helpers import normalize_name
 from fp.modes.base import BaseGameMode, BattleConfiguration
@@ -268,10 +269,10 @@ class BattleFactoryMode(BaseGameMode):
         player_packed = _team_from_entries(run.player_team)
         opp_packed = _team_from_entries(run.opponent_team)
 
-        # Server commands: register both teams
+        bot_name = getattr(FoulPlayConfig, "username", "bot") or "bot"
         setup_cmds = [
             "/factoryteam {}, {}".format(run.player_display, player_packed),
-            "/factoryteam bot, {}".format(opp_packed),
+            "/factoryteam {}, {}".format(bot_name, opp_packed),
         ]
 
         return BattleConfiguration(
@@ -502,13 +503,14 @@ class BattleFactoryMode(BaseGameMode):
             # Build config and dispatch
             player_packed = _team_from_entries(run.player_team)
             opp_packed_final = _team_from_entries(run.opponent_team)
+            bot_name = getattr(FoulPlayConfig, "username", "bot") or "bot"
             config = BattleConfiguration(
                 pokemon_format="gen9battlefactory",
                 team_dict=None,
                 team_packed=None,
                 setup_commands=[
                     "/factoryteam {}, {}".format(player_display, player_packed),
-                    "/factoryteam bot, {}".format(opp_packed_final),
+                    "/factoryteam {}, {}".format(bot_name, opp_packed_final),
                 ],
                 extra_info={
                     "player_id": player_id,
@@ -717,16 +719,16 @@ class BattleFactoryMode(BaseGameMode):
                 raw_opp.append(mon_str.split("|"))
         run.opponent_team = raw_opp
         run.phase = "in_battle"
-
         player_packed = _team_from_entries(run.player_team)
         opp_packed_final = _team_from_entries(run.opponent_team)
+        bot_name = getattr(FoulPlayConfig, "username", "bot") or "bot"
         config = BattleConfiguration(
             pokemon_format="gen9battlefactory",
             team_dict=None,
             team_packed=None,
             setup_commands=[
                 "/factoryteam {}, {}".format(player_display, player_packed),
-                "/factoryteam bot, {}".format(opp_packed_final),
+                "/factoryteam {}, {}".format(bot_name, opp_packed_final),
             ],
             extra_info={
                 "player_id": run.player_id,

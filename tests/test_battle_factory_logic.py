@@ -201,6 +201,34 @@ class TestBattleFactoryBattleLogic(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any("2. Ceruledge  @ MaliciousArmor" in m for m in messages))
         self.assertTrue(any("3. Cloyster  @ KingsRock" in m for m in messages))
 
+    async def test_setup_commands_uses_bot_username(self):
+        """prepare_battle must use FoulPlayConfig.username in /factoryteam setup commands."""
+        from config import FoulPlayConfig
+        from fp.modes.battle_factory import BattleFactoryMode, _FactoryRun
+        from unittest.mock import MagicMock
+
+        orig_username = getattr(FoulPlayConfig, "username", None)
+        try:
+            FoulPlayConfig.username = "EvilWoodenPlank"
+            mock_cd = MagicMock()
+            mode = BattleFactoryMode(mock_cd)
+
+            run = _FactoryRun(1, "TestUser", "testroom")
+            run.player_team = [["Flygon", "", "PomegBerry", "Levitate"]]
+            run.opponent_team = [["Houndoom", "", "LifeOrb", "FlashFire"]]
+            mode._runs["testuser"] = run
+
+            config = await mode.prepare_battle("testuser")
+            self.assertIsNotNone(config)
+            self.assertIn("/factoryteam TestUser, Flygon||PomegBerry|Levitate", config.setup_commands)
+            self.assertIn("/factoryteam EvilWoodenPlank, Houndoom||LifeOrb|FlashFire", config.setup_commands)
+            self.assertFalse(any("/factoryteam bot," in cmd for cmd in config.setup_commands))
+        finally:
+            if orig_username is not None:
+                FoulPlayConfig.username = orig_username
+            elif hasattr(FoulPlayConfig, "username"):
+                delattr(FoulPlayConfig, "username")
+
 
 if __name__ == "__main__":
     unittest.main()
