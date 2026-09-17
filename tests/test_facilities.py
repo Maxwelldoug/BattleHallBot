@@ -448,6 +448,41 @@ class TestBattleFactoryMode(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rec["current_streak"], 0)
         self.assertEqual(rec["max_streak"], 2)
 
+    async def test_start_draft_sends_each_pokemon_before_prompt(self):
+        """_start_draft should send each of the 6 pokemon as individual messages before the draft prompt."""
+        mode, cd = self._make_mode()
+        sample_packed = (
+            "Tauros||SpellTag|SheerForce|shadowball,trailblaze,takedown,flamethrower|Naive|6,252,,,,252|M|||50|]"
+            "Clefable||MoonStone|CuteCharm|raindance,thunderbolt,dig,waterpulse|Quirky|252,,6,252,,|M|||50|]"
+            "Feraligatr||RareBone|Torrent|earthquake,substitute,slash,lowkick|Bashful|6,252,,,,252|F|||50|]"
+            "Raichu||MysticWater|Static|grassknot,brickbreak,chargebeam,endeavor|Bashful|6,252,,,,252|M|||50|]"
+            "Rotom|RotomFan|PechaBerry|Levitate|thunder,astonish,shadowball,airslash|Hasty|6,,,252,,252|N|||50|]"
+            "Noctowl||WeaknessPolicy|TintedLens|tackle,nightshade,gigaimpact,extrasensory|Timid|252,,,252,6,|M|||50|"
+        )
+        with patch.object(mode, "_generate_team", new=AsyncMock(return_value=sample_packed)):
+            await mode.handle_command("draftuser", "DraftUser", "@factory", ["start"], "testroom")
+            # 6 Pokémon messages + 1 prompt message = 7 send_reply calls
+            self.assertEqual(cd.send_reply.call_count, 7)
+            calls = cd.send_reply.call_args_list
+            for idx in range(6):
+                msg = calls[idx].args[2]
+                self.assertTrue(msg.startswith(f"{idx + 1}. "))
+            prompt_call = calls[6].args[2]
+            self.assertIn("Battle Factory Draft", prompt_call)
+            self.assertIn("@factory draft", prompt_call)
+
+    async def test_challenge_dispatcher_send_reply_splits_multiline(self):
+        """send_reply without room should send each line as an individual PM."""
+        from fp.managers.challenge_dispatcher import ChallengeDispatcher
+        mock_ws = MagicMock()
+        mock_ws.send_message = AsyncMock()
+        cd = ChallengeDispatcher(mock_ws)
+        await cd.send_reply("", "User1", "Line 1\nLine 2\nLine 3")
+        self.assertEqual(mock_ws.send_message.call_count, 3)
+        self.assertEqual(mock_ws.send_message.call_args_list[0].args, ("", ["/pm User1, Line 1"]))
+        self.assertEqual(mock_ws.send_message.call_args_list[1].args, ("", ["/pm User1, Line 2"]))
+        self.assertEqual(mock_ws.send_message.call_args_list[2].args, ("", ["/pm User1, Line 3"]))
+
     async def test_factory_status_no_records(self):
         mode, cd = self._make_mode()
         status = await mode.get_player_status("newuser")

@@ -18,12 +18,17 @@ class ChallengeDispatcher:
         self.battle_manager = battle_manager
 
     async def send_reply(self, room: str, player_display: str, msg_text: str):
+        lines = [l for l in msg_text.splitlines() if l.strip()]
+        if not lines:
+            return
         if not room:
-            await self.ps_websocket_client.send_message(
-                "", ["/pm {}, {}".format(player_display, msg_text)]
-            )
+            for line in lines:
+                await self.ps_websocket_client.send_message(
+                    "", ["/pm {}, {}".format(player_display, line)]
+                )
         else:
-            await self.ps_websocket_client.send_message(room, [msg_text])
+            for line in lines:
+                await self.ps_websocket_client.send_message(room, [line])
 
     async def dispatch_challenge(
         self,

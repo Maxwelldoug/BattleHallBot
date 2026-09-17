@@ -669,51 +669,49 @@ class BattleFactoryMode(BaseGameMode):
             if mon_str:
                 run.draft_pool.append(mon_str.split("|"))
 
-        # Present to player via PM
-        lines = ["**Battle Factory Draft** — choose 3 with @factory draft <i> <j> <k>:"]
+        # Return each Pokémon as a message before prompting the user to draft
         for i, parts in enumerate(run.draft_pool, start=1):
             species = parts[1] if len(parts) > 1 and parts[1] else (parts[0] if parts else "???")
             item = parts[2] if len(parts) > 2 and parts[2] else "No Item"
             nature = parts[5] if len(parts) > 5 and parts[5] else "?"
             moves_raw = parts[4] if len(parts) > 4 else ""
             moves = [m.strip() for m in moves_raw.split(",") if m.strip()]
-            lines.append(
-                "{}. {} @ {}  ({}) — {}".format(
-                    i, species, item, nature, ", ".join(moves)
-                )
+            mon_msg = "{}. {} @ {}  ({}) — {}".format(
+                i, species, item, nature, ", ".join(moves)
             )
-        msg = "\n".join(lines)
-        # Use PM (empty room) so only the player sees it
-        await self.challenge_dispatcher.send_reply("", player_display, msg)
+            await self.challenge_dispatcher.send_reply("", player_display, mon_msg)
+
+        prompt_msg = "**Battle Factory Draft** — choose 3 with @factory draft <i> <j> <k>:"
+        await self.challenge_dispatcher.send_reply("", player_display, prompt_msg)
 
     async def _present_swap_offer(
         self, run: _FactoryRun, player_display: str, lobby_room: str
     ):
         """After a win, show the opponent's 3 Pokémon and ask for a swap."""
-        lines = [
-            "**Battle Factory: Swap Offer**",
-            "You may swap one of your Pokémon for one of the opponent's:",
-            "",
-            "**Opponent's Pokémon:**",
-        ]
+        await self.challenge_dispatcher.send_reply(
+            "", player_display,
+            "**Battle Factory: Swap Offer** — You may swap one of your Pokémon for one of the opponent's:"
+        )
+        await self.challenge_dispatcher.send_reply("", player_display, "**Opponent's Pokémon:**")
         for i, parts in enumerate(run.opponent_team, start=1):
             species = parts[1] if len(parts) > 1 else "???"
             item = parts[2] if len(parts) > 2 else "No Item"
-            lines.append("  {}. {}  @ {}".format(i, species, item))
+            await self.challenge_dispatcher.send_reply(
+                "", player_display, "  {}. {}  @ {}".format(i, species, item)
+            )
 
-        lines.append("")
-        lines.append("**Your current team:**")
+        await self.challenge_dispatcher.send_reply("", player_display, "**Your current team:**")
         for i, parts in enumerate(run.player_team, start=1):
             species = parts[1] if len(parts) > 1 else "???"
             item = parts[2] if len(parts) > 2 else "No Item"
-            lines.append("  {}. {}  @ {}".format(i, species, item))
+            await self.challenge_dispatcher.send_reply(
+                "", player_display, "  {}. {}  @ {}".format(i, species, item)
+            )
 
-        lines.append("")
-        lines.append(
+        await self.challenge_dispatcher.send_reply(
+            "", player_display,
             "Use **@factory swap <opp_#> <your_#>** to swap, or **@factory pass** to keep your team."
         )
-        # PM directly to player
-        await self.challenge_dispatcher.send_reply("", player_display, "\n".join(lines))
 
     async def _next_battle(
         self,
